@@ -141,8 +141,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;min-height:100vh;}
 .topbar{background:var(--bg2);border-bottom:1px solid var(--border2);padding:0 28px;display:flex;align-items:center;justify-content:space-between;height:56px;}
 .logo{font-family:'Orbitron',monospace;font-size:14px;font-weight:900;color:var(--red2);letter-spacing:2px;text-decoration:none;display:flex;align-items:center;gap:10px;}
-.logo-box{width:30px;height:30px;background:var(--red);border-radius:6px;display:flex;align-items:center;justify-content:center;}
-.logo-box svg{width:18px;height:18px;fill:#fff;}
+.logo-img{display:block;width:128px;height:auto;object-fit:contain;filter:drop-shadow(0 0 10px rgba(255,255,255,.1));}
 .topbar-right{display:flex;gap:8px;align-items:center;}
 .topbar-right a{color:var(--textd);text-decoration:none;font-size:13px;font-weight:600;padding:7px 14px;border-radius:6px;transition:all .2s;}
 .topbar-right a:hover{color:var(--text);background:var(--bg3);}
@@ -211,8 +210,7 @@ body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;mi
 <body>
 <header class="topbar">
   <a href="index.php" class="logo">
-    <div class="logo-box"><svg viewBox="0 0 20 20"><path d="M10 2L2 7v6l8 5 8-5V7L10 2z"/></svg></div>
-    BIKE CONCEPT VAULT
+    <img src="assets/img/logo.png" alt="Bike Concept Vault" class="logo-img">
   </a>
   <div class="topbar-right">
     <a href="index.php">&#8592; Back to Vault</a>
