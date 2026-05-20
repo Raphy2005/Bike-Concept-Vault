@@ -74,6 +74,12 @@ function initDatabase(PDO $pdo): void {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     ");
 
+    // Keep older local databases compatible with the current app schema.
+    $variantColumns = $pdo->query("SHOW COLUMNS FROM bike_variants")->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('color_hex', $variantColumns, true)) {
+        $pdo->exec("ALTER TABLE bike_variants ADD color_hex VARCHAR(7) NULL AFTER color_name");
+    }
+
     // Seed categories if empty
     $count = $pdo->query("SELECT COUNT(*) FROM categories")->fetchColumn();
     if ($count == 0) {
