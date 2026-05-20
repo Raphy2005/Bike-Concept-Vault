@@ -63,6 +63,26 @@ $sql = "
 ";
 $bikes = $pdo->query($sql)->fetchAll();
 
+$partsByBike = [];
+$partRows = $pdo->query("
+    SELECT part_id, bike_id, part_type, category, part_name, brand, description, price, quantity, image_url
+    FROM bike_parts
+    ORDER BY part_id ASC
+")->fetchAll();
+foreach ($partRows as $part) {
+    $partsByBike[(int)$part['bike_id']][] = [
+        'id' => (int)$part['part_id'],
+        'type' => $part['part_type'],
+        'category' => $part['category'],
+        'name' => $part['part_name'],
+        'brand' => $part['brand'] ?? '',
+        'description' => $part['description'] ?? '',
+        'price' => (float)$part['price'],
+        'qty' => (int)$part['quantity'],
+        'image' => $part['image_url'] ?? '',
+    ];
+}
+
 function stockBadge(string $status): string {
     $map = ['In Stock' => 'badge-green', 'Low Stock' => 'badge-yellow', 'Out of Stock' => 'badge-red'];
     $cls = $map[$status] ?? 'badge-red';
@@ -460,6 +480,243 @@ body{
 /* ── INVENTORY ────────────────────────────────────────────────── */
 .page-content{padding:24px 28px;}
 
+/* BUILD PARTS SYSTEM */
+.build-system{
+  padding:24px 28px 0;
+  background:linear-gradient(180deg,#0a0a0a 0%,var(--bg) 100%);
+}
+.build-shell{
+  border:1px solid var(--border2);
+  border-radius:var(--card-radius);
+  background:var(--bg2);
+  overflow:hidden;
+  box-shadow:0 18px 50px rgba(0,0,0,.34);
+}
+.build-head{
+  display:flex;align-items:flex-start;justify-content:space-between;gap:16px;
+  padding:18px 20px;
+  border-bottom:1px solid var(--border);
+  background:linear-gradient(90deg,rgba(232,0,13,.12),rgba(255,255,255,.015));
+}
+.build-kicker{
+  font-family:'Orbitron',monospace;font-size:9px;font-weight:700;
+  letter-spacing:2px;color:var(--red2);text-transform:uppercase;margin-bottom:6px;
+}
+.build-title{
+  font-family:'Orbitron',monospace;font-size:15px;font-weight:900;
+  letter-spacing:.5px;color:var(--text);line-height:1.3;
+}
+.build-sub{font-size:12px;color:var(--textd);margin-top:5px;}
+.build-total{
+  min-width:178px;text-align:right;
+  background:rgba(0,0,0,.32);
+  border:1px solid var(--border2);
+  border-radius:8px;padding:11px 14px;
+}
+.build-total span{
+  display:block;font-size:9px;font-weight:700;letter-spacing:1.5px;
+  color:var(--textd);text-transform:uppercase;margin-bottom:4px;
+}
+.build-total strong{
+  font-family:'Orbitron',monospace;font-size:22px;color:var(--red2);line-height:1;
+}
+.build-tools{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:14px 16px;border-bottom:1px solid var(--border);
+  flex-wrap:wrap;
+}
+.part-tabs{display:flex;gap:6px;flex-wrap:wrap;}
+.part-tab{
+  background:var(--bg3);border:1px solid var(--border2);border-radius:5px;
+  color:var(--textd);font-family:'Rajdhani',sans-serif;font-size:10px;
+  font-weight:800;letter-spacing:.8px;text-transform:uppercase;
+  padding:6px 11px;cursor:pointer;transition:all .15s;
+}
+.part-tab.active,.part-tab:hover{color:var(--text);border-color:var(--red);}
+.btn-add-part{
+  background:var(--red);border:none;border-radius:6px;color:#fff;
+  font-family:'Orbitron',monospace;font-size:9px;font-weight:800;
+  letter-spacing:1px;padding:9px 13px;cursor:pointer;
+}
+.btn-add-part:hover{background:var(--red2);}
+.part-add-panel{
+  display:none;grid-template-columns:1.2fr 1fr .85fr .72fr .72fr 1.4fr 1fr auto;
+  gap:8px;padding:14px 16px;border-bottom:1px solid var(--border);
+  background:#0b0b0b;
+}
+.part-add-panel.show{display:grid;}
+.part-add-panel input,.part-add-panel select,.part-add-panel textarea{
+  background:var(--bg3);border:1px solid var(--border2);border-radius:6px;
+  color:var(--text);font-family:'Rajdhani',sans-serif;font-size:13px;
+  padding:9px 10px;min-width:0;
+}
+.part-add-panel textarea{resize:vertical;min-height:38px;}
+.part-add-panel input[type="file"]{padding:7px 10px;color:var(--textd);}
+.part-add-panel input:focus,.part-add-panel select:focus{outline:none;border-color:var(--red);}
+.part-add-panel button{
+  background:#fff;color:#111;border:none;border-radius:6px;
+  font-family:'Orbitron',monospace;font-size:9px;font-weight:800;
+  letter-spacing:1px;padding:0 14px;cursor:pointer;
+}
+.parts-list{display:flex;flex-direction:column;}
+.part-row{
+  display:grid;grid-template-columns:64px minmax(210px,1.25fr) minmax(130px,.8fr) 112px 82px 120px 148px;
+  align-items:center;gap:12px;
+  padding:13px 16px;border-bottom:1px solid rgba(61,0,5,.55);
+  transition:background .15s,border-color .15s;
+}
+.part-row:hover{background:rgba(255,255,255,.018);}
+.part-row:last-child{border-bottom:none;}
+.part-thumb{
+  width:58px;height:48px;border-radius:8px;
+  background:radial-gradient(circle at 45% 35%,#2a2a2a,#090909 70%);
+  border:1px solid var(--border2);
+  display:flex;align-items:center;justify-content:center;overflow:hidden;
+  cursor:pointer;transition:border-color .15s,transform .15s;
+  padding:5px;
+}
+.part-thumb:hover{border-color:var(--red);transform:translateY(-1px);}
+.part-thumb img{
+  display:block;width:100%;height:100%;object-fit:contain;object-position:center;
+  filter:drop-shadow(0 7px 10px rgba(0,0,0,.65));
+}
+.part-name-input,.part-brand-input,.part-cat-select{
+  width:100%;background:#111;border:1px solid transparent;border-radius:6px;
+  color:var(--text);font-family:'Rajdhani',sans-serif;font-weight:800;
+  padding:6px 8px;min-width:0;
+}
+.part-name-display{
+  font-family:'Orbitron',monospace;font-size:11px;font-weight:800;color:var(--text);
+}
+.part-brand-display{font-size:11px;color:var(--textd);margin-top:3px;}
+.part-desc-display{font-size:11px;color:#777;line-height:1.35;margin-top:6px;max-width:360px;}
+.part-meta-display{font-size:11px;color:var(--text);font-weight:800;}
+.part-edit-field{display:flex;flex-direction:column;gap:5px;}
+.part-edit-label{
+  font-size:8px;font-weight:800;letter-spacing:1px;color:var(--textd);text-transform:uppercase;
+}
+.part-desc-input{
+  width:100%;background:#111;border:1px solid transparent;border-radius:6px;
+  color:var(--text);font-family:'Rajdhani',sans-serif;font-size:12px;
+  padding:7px 8px;resize:vertical;min-height:56px;
+}
+.part-desc-input:focus{outline:none;border-color:var(--red);box-shadow:0 0 0 2px rgba(232,0,13,.16);}
+.part-name-input{
+  font-family:'Orbitron',monospace;font-size:10.5px;letter-spacing:.2px;
+}
+.part-brand-input{font-size:11px;color:var(--textd);margin-top:4px;}
+.part-name-input:focus,.part-brand-input:focus,.part-cat-select:focus{
+  outline:none;border-color:var(--red);box-shadow:0 0 0 2px rgba(232,0,13,.16);
+}
+.part-cat{
+  display:inline-flex;width:max-content;
+  background:rgba(232,0,13,.1);border:1px solid var(--border2);
+  color:var(--red3);border-radius:12px;
+  padding:3px 9px;font-size:9px;font-weight:800;letter-spacing:.7px;text-transform:uppercase;
+}
+.part-cat-select{
+  color:var(--red3);font-size:10px;text-transform:uppercase;
+  background:rgba(232,0,13,.08);border-color:var(--border2);
+}
+.part-image-tools{display:flex;flex-direction:column;gap:5px;align-items:center;}
+.part-image-file{display:none;}
+.part-image-btn{
+  width:58px;border:1px solid var(--border2);background:var(--bg3);
+  color:var(--textd);border-radius:5px;font-size:8px;font-weight:800;
+  letter-spacing:.6px;padding:4px 0;cursor:pointer;font-family:'Rajdhani',sans-serif;
+  text-align:center;
+}
+.part-image-btn:hover{border-color:var(--red);color:var(--red3);}
+.part-image-remove{
+  width:58px;border:1px solid #431014;background:transparent;color:#f87171;
+  border-radius:5px;font-size:8px;font-weight:800;letter-spacing:.6px;
+  padding:4px 0;cursor:pointer;font-family:'Rajdhani',sans-serif;
+}
+.part-image-remove:hover{background:rgba(239,68,68,.08);}
+.part-price,.part-qty{
+  width:100%;background:#111;border:1px solid var(--border2);
+  border-radius:6px;color:var(--text);font-family:'Rajdhani',sans-serif;
+  font-size:13px;font-weight:700;padding:8px 9px;
+}
+.part-price:focus,.part-qty:focus{outline:none;border-color:var(--red);box-shadow:0 0 0 2px rgba(232,0,13,.16);}
+.part-line-total{
+  font-family:'Orbitron',monospace;font-size:12px;font-weight:800;color:var(--text);
+  text-align:right;
+}
+.part-actions{display:flex;gap:6px;justify-content:flex-end;}
+.part-actions button{
+  border-radius:5px;padding:7px 9px;font-size:9.5px;font-weight:800;
+  letter-spacing:.6px;cursor:pointer;font-family:'Rajdhani',sans-serif;
+}
+.part-edit{background:var(--bg3);border:1px solid var(--border2);color:var(--text);}
+.part-save{background:#fff;border:1px solid #fff;color:#111;}
+.part-cancel{background:var(--bg3);border:1px solid var(--border2);color:var(--textd);}
+.part-remove{background:transparent;border:1px solid #431014;color:#f87171;}
+.part-edit:hover{border-color:var(--red);color:var(--red3);}
+.part-save:hover{background:#e7e7e7;}
+.part-cancel:hover{border-color:var(--border3);color:var(--text);}
+.part-remove:hover{background:rgba(239,68,68,.08);}
+.parts-empty{
+  padding:34px 18px;text-align:center;color:var(--textd);font-size:13px;
+}
+.image-modal{
+  width:min(92vw,680px);max-width:680px;padding:22px;
+  border-color:var(--border3);
+  box-shadow:0 30px 90px rgba(0,0,0,.78),0 0 0 1px rgba(232,0,13,.18);
+  animation:modalPop .18s ease-out;
+}
+.image-modal-frame{
+  width:100%;
+  aspect-ratio:1 / 1;
+  max-height:min(72vh,640px);
+  display:flex;align-items:center;justify-content:center;
+  padding:18px;
+  background:#050505;
+  border:1px solid var(--border2);
+  border-radius:10px;
+  overflow:hidden;
+}
+.image-modal-img{
+  display:block;
+  max-width:100%;
+  max-height:100%;
+  width:auto;
+  height:auto;
+  object-fit:contain;
+  object-position:center;
+  border-radius:6px;
+}
+.image-modal-title{
+  font-family:'Orbitron',monospace;font-size:12px;font-weight:800;
+  color:var(--text);margin-bottom:12px;text-align:left;
+}
+@keyframes modalPop{
+  from{opacity:0;transform:translateY(10px) scale(.98);}
+  to{opacity:1;transform:translateY(0) scale(1);}
+}
+
+@media (max-width:980px){
+  .build-head{flex-direction:column;}
+  .build-total{width:100%;text-align:left;}
+  .part-add-panel{grid-template-columns:1fr 1fr;}
+  .part-row{grid-template-columns:58px 1fr 92px;align-items:start;}
+  .part-cat,.part-line-total,.part-actions{grid-column:2 / span 2;}
+  .part-line-total{text-align:left;}
+  .part-actions{justify-content:flex-start;}
+}
+
+@media (max-width:640px){
+  .build-system{padding:16px 12px 0;}
+  .build-head,.build-tools{padding:14px;}
+  .part-add-panel{grid-template-columns:1fr;padding:12px;}
+  .part-add-panel button{height:38px;}
+  .part-row{grid-template-columns:54px 1fr;gap:10px;padding:12px;}
+  .part-cat,.part-price,.part-qty,.part-line-total,.part-actions{grid-column:1 / span 2;}
+  .part-actions button{flex:1;}
+  .image-modal{width:94vw;padding:14px;}
+  .image-modal-frame{padding:12px;max-height:70vh;}
+}
+
 .section-hdr{
   display:flex;align-items:center;justify-content:space-between;
   margin-bottom:16px;padding-bottom:13px;
@@ -794,6 +1051,55 @@ body{
 <?php endif; ?>
 
 <!-- ── INVENTORY GRID ─────────────────────────────────────────── -->
+<!-- BUILD PARTS SYSTEM -->
+<section class="build-system" aria-label="Motorcycle modification build parts">
+  <div class="build-shell">
+    <div class="build-head">
+      <div>
+        <div class="build-kicker">Concept Build Parts</div>
+        <div class="build-title" id="buildTitle">
+          <?= $featured ? htmlspecialchars($featured['bike_name'] . ' ' . $featured['model']) : 'Selected Motorcycle' ?>
+        </div>
+        <div class="build-sub">Installed parts with editable prices, quantities, and estimated build cost.</div>
+      </div>
+      <div class="build-total">
+        <span>Total Build Cost</span>
+        <strong id="buildGrandTotal">&#8369;0</strong>
+      </div>
+    </div>
+
+    <div class="build-tools">
+      <div class="part-tabs" id="partTabs">
+        <button class="part-tab active" type="button" data-part-filter="All" onclick="setPartFilter('All',this)">All</button>
+        <button class="part-tab" type="button" data-part-filter="Wheels" onclick="setPartFilter('Wheels',this)">Wheels</button>
+        <button class="part-tab" type="button" data-part-filter="Engine" onclick="setPartFilter('Engine',this)">Engine</button>
+        <button class="part-tab" type="button" data-part-filter="Electrical" onclick="setPartFilter('Electrical',this)">Electrical</button>
+        <button class="part-tab" type="button" data-part-filter="Body Parts" onclick="setPartFilter('Body Parts',this)">Body Parts</button>
+        <button class="part-tab" type="button" data-part-filter="Accessories" onclick="setPartFilter('Accessories',this)">Accessories</button>
+      </div>
+      <button class="btn-add-part" type="button" onclick="togglePartForm()">ADD PART</button>
+    </div>
+
+    <div class="part-add-panel" id="partAddPanel">
+      <input type="text" id="newPartName" placeholder="Part name">
+      <input type="text" id="newPartBrand" placeholder="Brand">
+      <select id="newPartCategory">
+        <option>Engine</option>
+        <option>Body</option>
+        <option>Accessories</option>
+        <option>Electrical</option>
+      </select>
+      <input type="number" id="newPartPrice" placeholder="Price" min="0" step="100">
+      <input type="number" id="newPartQty" placeholder="Qty" min="1" step="1" value="1">
+      <textarea id="newPartDesc" placeholder="Description"></textarea>
+      <input type="file" id="newPartImage" accept="image/*" aria-label="Part image">
+      <button type="button" onclick="addPart()">SAVE</button>
+    </div>
+
+    <div class="parts-list" id="partsList"></div>
+  </div>
+</section>
+
 <div class="page-content">
   <div class="section-hdr">
     <div class="section-hdr-left">
@@ -871,6 +1177,18 @@ body{
   </div>
 </div>
 
+<div class="modal-overlay" id="partImageModal">
+  <div class="modal image-modal">
+    <div class="image-modal-title" id="partImageTitle">Part Preview</div>
+    <div class="image-modal-frame">
+      <img src="" alt="Installed part preview" class="image-modal-img" id="partImagePreview">
+    </div>
+    <div class="modal-btns" style="margin-top:16px;">
+      <button class="btn-cancel" onclick="closePartImage()">Close</button>
+    </div>
+  </div>
+</div>
+
 <script>
 /* ── HERO DATA per category ── */
 const FALLBACK_IMG = <?= json_encode(FALLBACK_BIKE_IMG) ?>;
@@ -910,6 +1228,8 @@ const CAT_LABELS = {
 };
 
 /* ── STATE ── */
+const PARTS_FROM_DB = <?= json_encode($partsByBike) ?>;
+
 let activeCat    = 0;
 let searchTerm   = '';
 let stockFilter  = 'all';
@@ -932,6 +1252,347 @@ const heroEditBtn    = document.getElementById('heroEditBtn');
 const heroWmRed      = document.querySelector('.hero-wm-brand .part-red');
 const heroWmWhite    = document.querySelector('.hero-wm-brand .part-white');
 const varChooseLabel = document.getElementById('varChooseLabel');
+
+/* BUILD PARTS SYSTEM */
+const partsListEl = document.getElementById('partsList');
+const buildTitleEl = document.getElementById('buildTitle');
+const buildGrandTotalEl = document.getElementById('buildGrandTotal');
+const partAddPanel = document.getElementById('partAddPanel');
+const PARTS_STORAGE_KEY = 'bikeConceptVault.parts.v1';
+const ALLOWED_PART_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+let activePartFilter = 'All';
+let activeBuildKey = CAT_HEROES[0] ? String(CAT_HEROES[0].bike_id) : 'default';
+let activeBuildName = CAT_HEROES[0] ? (CAT_HEROES[0].bike_name + ' ' + CAT_HEROES[0].model) : 'Selected Motorcycle';
+let partIdSeq = 100;
+const conceptPartsCache = {};
+let pendingPartImage = '';
+let editingPartId = null;
+let editingDraft = null;
+
+function formatPeso(value) {
+  return '\u20B1' + Number(value || 0).toLocaleString();
+}
+
+function escapeHTML(value) {
+  return String(value || '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
+  }[ch]));
+}
+
+function loadStoredParts() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(PARTS_STORAGE_KEY) || '{}');
+    if (stored && typeof stored === 'object') {
+      Object.assign(conceptPartsCache, stored);
+      Object.values(conceptPartsCache).flat().forEach(part => {
+        if (Number(part.id) > partIdSeq) partIdSeq = Number(part.id);
+      });
+    }
+  } catch (error) {
+    console.warn('Unable to load saved parts:', error);
+  }
+}
+
+function savePartsState() {
+  try {
+    localStorage.setItem(PARTS_STORAGE_KEY, JSON.stringify(conceptPartsCache));
+  } catch (error) {
+    alert('Image is too large to save in browser storage. Please use a smaller JPG, PNG, or WEBP file.');
+  }
+}
+
+function isAllowedPartImage(file) {
+  return file && ALLOWED_PART_IMAGE_TYPES.includes(file.type);
+}
+
+function readPartImage(file, onLoad) {
+  if (!isAllowedPartImage(file)) {
+    alert('Please upload a JPG, PNG, or WEBP image.');
+    return false;
+  }
+  const reader = new FileReader();
+  reader.onload = event => onLoad(event.target.result);
+  reader.readAsDataURL(file);
+  return true;
+}
+
+function partImage(kind) {
+  const svgMap = {
+    wheel: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 90 70"><circle cx="45" cy="35" r="25" fill="#141414" stroke="#e8000d" stroke-width="5"/><circle cx="45" cy="35" r="10" fill="#333" stroke="#ddd" stroke-width="3"/><g stroke="#eee" stroke-width="3" stroke-linecap="round"><path d="M45 10v50M20 35h50M27 17l36 36M63 17 27 53"/></g></svg>',
+    shock: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 90 70"><g transform="rotate(-22 45 35)"><rect x="40" y="8" width="10" height="54" rx="5" fill="#ddd"/><path d="M33 16h24M33 24h24M33 32h24M33 40h24M33 48h24M33 56h24" stroke="#e8000d" stroke-width="4" stroke-linecap="round"/></g></svg>',
+    brake: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 90 70"><circle cx="38" cy="36" r="22" fill="none" stroke="#ccc" stroke-width="7"/><circle cx="38" cy="36" r="6" fill="#e8000d"/><path d="M53 22h18v27H53c7-8 7-19 0-27z" fill="#2b2b2b" stroke="#e8000d" stroke-width="3"/></svg>',
+    seat: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 90 70"><path d="M16 41c8-18 25-23 47-18 8 2 12 8 11 16-18 5-38 7-58 2z" fill="#1d1d1d" stroke="#e8000d" stroke-width="4"/><path d="M26 35c14 3 29 3 43 0" stroke="#555" stroke-width="3" stroke-linecap="round"/></svg>',
+    light: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 90 70"><path d="M24 22h31c9 0 16 7 16 16s-7 16-16 16H24z" fill="#151515" stroke="#e8000d" stroke-width="4"/><path d="M33 29h20c5 0 9 4 9 9s-4 9-9 9H33z" fill="#f6f0b5"/><path d="M14 28 4 20M13 42 3 50" stroke="#f6f0b5" stroke-width="4" stroke-linecap="round"/></svg>',
+    engine: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 90 70"><rect x="20" y="24" width="42" height="28" rx="5" fill="#202020" stroke="#e8000d" stroke-width="4"/><path d="M29 18h24v10H29zM62 32h10v13H62M28 52l-8 8M54 52l8 8" fill="none" stroke="#ddd" stroke-width="4" stroke-linecap="round"/></svg>',
+    default: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 90 70"><path d="M20 48h38l12-18H47l-8-10H25z" fill="#181818" stroke="#e8000d" stroke-width="4"/><circle cx="27" cy="51" r="7" fill="#ddd"/><circle cx="61" cy="51" r="7" fill="#ddd"/></svg>'
+  };
+  return 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svgMap[kind] || svgMap.default);
+}
+
+function imageKindForPart(part) {
+  const text = (part.name + ' ' + part.category).toLowerCase();
+  if (text.includes('wheel') || text.includes('mags')) return 'wheel';
+  if (text.includes('shock')) return 'shock';
+  if (text.includes('brake')) return 'brake';
+  if (text.includes('seat')) return 'seat';
+  if (text.includes('headlight') || text.includes('led')) return 'light';
+  if (text.includes('engine')) return 'engine';
+  return 'default';
+}
+
+function basePartsForBuild(buildName) {
+  const concept = (buildName || '').toLowerCase();
+  const wheelBrand = concept.includes('thai') ? 'RCB Thailand' : 'Concept Garage';
+  return [
+    {id:1, name:'Thai Mags Wheel', brand:wheelBrand, category:'Wheels', price:4500, qty:1, description:'Lightweight Thai-style mags wheel set for daily concept builds.'},
+    {id:2, name:'Racing Shock', brand:'YSS Performance', category:'Engine', price:2800, qty:1, description:'Adjustable rear shock tuned for a lower, sportier stance.'},
+    {id:3, name:'Disc Brake Set', brand:'Brembo Style', category:'Engine', price:3200, qty:1, description:'Front disc brake conversion kit with caliper, rotor, and bracket.'},
+    {id:4, name:'Thai Seat', brand:'Bangkok Trim', category:'Body Parts', price:1500, qty:1, description:'Slim custom seat with Thai concept profile.'},
+    {id:5, name:'LED Headlight', brand:'Koso Vision', category:'Electrical', price:1200, qty:1, description:'Bright LED headlight assembly for night riding and show display.'}
+  ];
+}
+
+function getActiveParts() {
+  if (!conceptPartsCache[activeBuildKey]) {
+    const dbParts = PARTS_FROM_DB[activeBuildKey] || [];
+    conceptPartsCache[activeBuildKey] = dbParts.length
+      ? dbParts.map(part => ({...part}))
+      : basePartsForBuild(activeBuildName).map(part => ({...part}));
+    savePartsState();
+  }
+  return conceptPartsCache[activeBuildKey];
+}
+
+loadStoredParts();
+
+const newPartImageInput = document.getElementById('newPartImage');
+if (newPartImageInput) {
+  newPartImageInput.addEventListener('change', function() {
+    const file = this.files && this.files[0];
+    if (!file) {
+      pendingPartImage = '';
+      return;
+    }
+    readPartImage(file, imageData => {
+      pendingPartImage = imageData;
+    });
+  });
+}
+
+function renderParts() {
+  if (!partsListEl) return;
+  const parts = getActiveParts();
+  const shown = parts.filter(part => activePartFilter === 'All' || part.category === activePartFilter);
+  if (buildTitleEl) buildTitleEl.textContent = activeBuildName;
+  if (!shown.length) {
+    partsListEl.innerHTML = '<div class="parts-empty">No installed parts in this category.</div>';
+  } else {
+    partsListEl.innerHTML = shown.map(part => {
+      const isEditing = editingPartId === part.id;
+      const rowData = isEditing && editingDraft ? editingDraft : part;
+      const lineTotal = Number(rowData.price || 0) * Number(rowData.qty || 0);
+      const img = rowData.image || partImage(imageKindForPart(rowData));
+      const categories = ['Wheels','Engine','Electrical','Body Parts','Accessories'];
+      return `
+        <div class="part-row" data-part-id="${part.id}">
+          <div class="part-image-tools">
+            <button class="part-thumb" type="button" onclick="openPartImage(${part.id})" title="View ${escapeHTML(part.name)} image">
+              <img src="${img}" alt="${escapeHTML(rowData.name)} preview">
+            </button>
+            <label class="part-image-btn" for="partImageInput${part.id}">${part.image ? 'CHANGE' : 'UPLOAD'}</label>
+            <input class="part-image-file" id="partImageInput${part.id}" type="file" accept="image/jpeg,image/png,image/webp" onchange="savePartImage(${part.id}, this)">
+            ${part.image ? `<button class="part-image-remove" type="button" onclick="removePartImage(${part.id})">REMOVE</button>` : ''}
+          </div>
+          <div>
+            ${isEditing ? `
+              <input class="part-name-input" type="text" value="${escapeHTML(rowData.name)}" oninput="updateDraftField('name', this.value)" aria-label="Part name">
+              <input class="part-brand-input" type="text" value="${escapeHTML(rowData.brand)}" oninput="updateDraftField('brand', this.value)" aria-label="Part brand">
+              <textarea class="part-desc-input" oninput="updateDraftField('description', this.value)" aria-label="Part description">${escapeHTML(rowData.description || '')}</textarea>
+            ` : `
+              <div class="part-name-display">${escapeHTML(rowData.name)}</div>
+              <div class="part-brand-display">${escapeHTML(rowData.brand)}</div>
+              <div class="part-desc-display">${escapeHTML(rowData.description || 'No description added.')}</div>
+            `}
+          </div>
+          ${isEditing ? `
+            <select class="part-cat-select" onchange="updateDraftField('category', this.value)" aria-label="Part category">
+              ${categories.map(cat => `<option value="${cat}" ${rowData.category === cat ? 'selected' : ''}>${cat}</option>`).join('')}
+            </select>
+            <input class="part-price" type="number" min="0" step="100" value="${Number(rowData.price || 0)}" oninput="updateDraftField('price', this.value)" aria-label="${escapeHTML(rowData.name)} price">
+            <input class="part-qty" type="number" min="1" step="1" value="${Number(rowData.qty || 1)}" oninput="updateDraftField('qty', this.value)" aria-label="${escapeHTML(rowData.name)} quantity">
+          ` : `
+            <span class="part-cat">${escapeHTML(rowData.category)}</span>
+            <div class="part-meta-display">${formatPeso(rowData.price)}</div>
+            <div class="part-meta-display">${Number(rowData.qty || 1)}</div>
+          `}
+          <div class="part-line-total">${formatPeso(lineTotal)}</div>
+          <div class="part-actions">
+            ${isEditing ? `
+              <button class="part-save" type="button" onclick="savePartEdit(${part.id})">SAVE</button>
+              <button class="part-cancel" type="button" onclick="cancelPartEdit()">CANCEL</button>
+            ` : `
+              <button class="part-edit" type="button" onclick="startPartEdit(${part.id})">EDIT</button>
+              <button class="part-remove" type="button" onclick="removePart(${part.id})">REMOVE</button>
+            `}
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+  updateBuildTotal();
+}
+
+function updateBuildTotal() {
+  const total = getActiveParts().reduce((sum, part) => sum + (Number(part.price || 0) * Number(part.qty || 0)), 0);
+  if (buildGrandTotalEl) buildGrandTotalEl.textContent = formatPeso(total);
+}
+
+function startPartEdit(id) {
+  const part = getActiveParts().find(item => item.id === id);
+  if (!part) return;
+  editingPartId = id;
+  editingDraft = {...part};
+  renderParts();
+  setTimeout(() => {
+    const input = document.querySelector(`.part-row[data-part-id="${id}"] .part-name-input`);
+    if (input) {
+      input.focus();
+      input.select();
+    }
+  }, 40);
+}
+
+function updateDraftField(field, value) {
+  if (!editingDraft) return;
+  if (field === 'price') {
+    editingDraft.price = Math.max(0, Number(value || 0));
+  } else if (field === 'qty') {
+    editingDraft.qty = Math.max(1, parseInt(value || 1, 10));
+  } else {
+    editingDraft[field] = value;
+  }
+  const row = document.querySelector(`.part-row[data-part-id="${editingPartId}"]`);
+  const totalEl = row ? row.querySelector('.part-line-total') : null;
+  if (totalEl) totalEl.textContent = formatPeso(Number(editingDraft.price || 0) * Number(editingDraft.qty || 0));
+}
+
+function savePartImage(id, input) {
+  const part = getActiveParts().find(item => item.id === id);
+  const file = input.files && input.files[0];
+  if (!part || !file) return;
+  readPartImage(file, imageData => {
+    part.image = imageData;
+    if (editingPartId === id && editingDraft) editingDraft.image = imageData;
+    const row = document.querySelector(`.part-row[data-part-id="${id}"]`);
+    const img = row ? row.querySelector('.part-thumb img') : null;
+    if (img) img.src = imageData;
+    savePartsState();
+    renderParts();
+  });
+}
+
+function removePartImage(id) {
+  const part = getActiveParts().find(item => item.id === id);
+  if (!part) return;
+  delete part.image;
+  if (editingPartId === id && editingDraft) delete editingDraft.image;
+  savePartsState();
+  renderParts();
+}
+
+function savePartEdit(id) {
+  const parts = getActiveParts();
+  const index = parts.findIndex(item => item.id === id);
+  if (index === -1 || !editingDraft) return;
+  parts[index] = {
+    ...editingDraft,
+    name: String(editingDraft.name || '').trim() || 'Untitled Part',
+    brand: String(editingDraft.brand || '').trim() || 'Custom Garage',
+    description: String(editingDraft.description || '').trim(),
+    price: Math.max(0, Number(editingDraft.price || 0)),
+    qty: Math.max(1, parseInt(editingDraft.qty || 1, 10))
+  };
+  editingPartId = null;
+  editingDraft = null;
+  savePartsState();
+  renderParts();
+}
+
+function cancelPartEdit() {
+  editingPartId = null;
+  editingDraft = null;
+  renderParts();
+}
+
+function removePart(id) {
+  if (editingPartId === id) {
+    editingPartId = null;
+    editingDraft = null;
+  }
+  conceptPartsCache[activeBuildKey] = getActiveParts().filter(part => part.id !== id);
+  savePartsState();
+  renderParts();
+}
+
+function openPartImage(id) {
+  const part = getActiveParts().find(item => item.id === id);
+  if (!part) return;
+  const img = part.image || partImage(imageKindForPart(part));
+  const modal = document.getElementById('partImageModal');
+  const preview = document.getElementById('partImagePreview');
+  const title = document.getElementById('partImageTitle');
+  if (preview) preview.src = img;
+  if (title) title.textContent = part.name + ' - ' + part.brand;
+  if (modal) modal.classList.add('show');
+}
+
+function closePartImage() {
+  const modal = document.getElementById('partImageModal');
+  if (modal) modal.classList.remove('show');
+}
+
+function togglePartForm() {
+  if (partAddPanel) partAddPanel.classList.toggle('show');
+}
+
+function addPart() {
+  const name = document.getElementById('newPartName').value.trim();
+  const brand = document.getElementById('newPartBrand').value.trim() || 'Custom Garage';
+  const category = document.getElementById('newPartCategory').value;
+  const price = Math.max(0, Number(document.getElementById('newPartPrice').value || 0));
+  const qty = Math.max(1, parseInt(document.getElementById('newPartQty').value || 1, 10));
+  const description = document.getElementById('newPartDesc').value.trim();
+  if (!name) {
+    document.getElementById('newPartName').focus();
+    return;
+  }
+  getActiveParts().push({id:++partIdSeq, name, brand, category, price, qty, description, image: pendingPartImage});
+  document.getElementById('newPartName').value = '';
+  document.getElementById('newPartBrand').value = '';
+  document.getElementById('newPartPrice').value = '';
+  document.getElementById('newPartQty').value = '1';
+  document.getElementById('newPartDesc').value = '';
+  document.getElementById('newPartImage').value = '';
+  pendingPartImage = '';
+  savePartsState();
+  renderParts();
+}
+
+function setPartFilter(category, btn) {
+  activePartFilter = category;
+  document.querySelectorAll('.part-tab').forEach(tab => tab.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  renderParts();
+}
+
+function updateBuildConcept(data) {
+  if (!data) return;
+  activeBuildKey = String(data.bike_id || data.bikeId || 'default');
+  activeBuildName = (data.bike_name || data.bikeName || 'Selected') + ' ' + (data.model || 'Motorcycle');
+  editingPartId = null;
+  editingDraft = null;
+  renderParts();
+}
 
 /* ── UPDATE HERO ── */
 function updateHero(catId) {
@@ -958,6 +1619,7 @@ function updateHero(catId) {
     heroPill.className = 'stock-pill ' + (s === 'In Stock' ? 'green' : s === 'Low Stock' ? 'yellow' : 'red-pill');
     heroPill.innerHTML = '<span class="stock-dot"></span>' + s;
   }
+  updateBuildConcept(data);
 }
 
 /* ── CATEGORY CLICK ── */
@@ -1030,6 +1692,7 @@ function closeDelete() {
   document.getElementById('deleteModal').classList.remove('show');
 }
 document.getElementById('deleteModal').addEventListener('click', function(e){ if(e.target===this) closeDelete(); });
+document.getElementById('partImageModal').addEventListener('click', function(e){ if(e.target===this) closePartImage(); });
 
 /* ── CARD PREVIEW → HERO ── */
 function previewBike(card) {
@@ -1057,6 +1720,7 @@ function previewBike(card) {
     heroPill.className = 'stock-pill ' + (s === 'In Stock' ? 'green' : s === 'Low Stock' ? 'yellow' : 'red-pill');
     heroPill.innerHTML = '<span class=\'stock-dot\'></span>' + s;
   }
+  updateBuildConcept(d);
   document.querySelector('.hero').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -1074,6 +1738,7 @@ function selectVariant(el, imgSrc) {
     }, 150);
   }
 }
+renderParts();
 </script>
 </body>
 </html>

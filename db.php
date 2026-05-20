@@ -72,6 +72,23 @@ function initDatabase(PDO $pdo): void {
             FOREIGN KEY (variant_id) REFERENCES bike_variants(variant_id)
                 ON DELETE CASCADE ON UPDATE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+        CREATE TABLE IF NOT EXISTS bike_parts (
+            part_id     INT AUTO_INCREMENT PRIMARY KEY,
+            bike_id     INT NOT NULL,
+            part_type   ENUM('Accessory','Part') NOT NULL DEFAULT 'Accessory',
+            category    VARCHAR(40) NOT NULL DEFAULT 'Accessories',
+            part_name   VARCHAR(120) NOT NULL,
+            brand       VARCHAR(100),
+            description TEXT,
+            price       DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+            quantity    INT NOT NULL DEFAULT 1,
+            image_url   VARCHAR(255),
+            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            FOREIGN KEY (bike_id) REFERENCES bikes(bike_id)
+                ON DELETE CASCADE ON UPDATE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     ");
 
     // Keep older local databases compatible with the current app schema.

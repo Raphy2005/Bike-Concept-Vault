@@ -6,6 +6,23 @@ $success = false;
 
 $categories = $pdo->query("SELECT * FROM categories ORDER BY category_id")->fetchAll();
 
+function uploadPartImage(array $file): string {
+    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) return '';
+
+    $allowed = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
+    $ftype = mime_content_type($file['tmp_name']);
+    if (!isset($allowed[$ftype])) {
+        throw new RuntimeException('Part images must be JPG, PNG, or WEBP.');
+    }
+
+    if (!is_dir('uploads/parts')) mkdir('uploads/parts', 0755, true);
+    $filename = 'uploads/parts/' . uniqid('part_') . '.' . $allowed[$ftype];
+    if (!move_uploaded_file($file['tmp_name'], $filename)) {
+        throw new RuntimeException('Failed to upload part image.');
+    }
+    return $filename;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $category_id = (int)($_POST['category_id'] ?? 0);
     $bike_name   = trim($_POST['bike_name']   ?? '');
@@ -17,6 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $color_name  = trim($_POST['color_name']  ?? 'Pearl White');
     $stock_qty   = (int)($_POST['stock_qty']  ?? 0);
     $stock_status = $_POST['stock_status']    ?? 'In Stock';
+    $part_names = $_POST['part_name'] ?? [];
 
     if (!$category_id) $errors[] = 'Please select a category.';
     if ($bike_name === '') $errors[] = 'Bike name is required.';
@@ -67,6 +85,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!in_array($stock_status, $valid_statuses)) $stock_status = 'In Stock';
             $istmt = $pdo->prepare("INSERT INTO inventory (variant_id, stock_qty, stock_status) VALUES (?, ?, ?)");
             $istmt->execute([$variant_id, $stock_qty, $stock_status]);
+
+            $partStmt = $pdo->prepare("
+                INSERT INTO bike_parts (bike_id, part_type, category, part_name, brand, description, price, quantity, image_url)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+            foreach ($part_names as $idx => $part_name_raw) {
+                $part_name = trim($part_name_raw);
+                if ($part_name === '') continue;
+
+                $partFile = [
+                    'name' => $_FILES['part_image']['name'][$idx] ?? '',
+                    'type' => $_FILES['part_image']['type'][$idx] ?? '',
+                    'tmp_name' => $_FILES['part_image']['tmp_name'][$idx] ?? '',
+                    'error' => $_FILES['part_image']['error'][$idx] ?? UPLOAD_ERR_NO_FILE,
+                    'size' => $_FILES['part_image']['size'][$idx] ?? 0,
+                ];
+
+                $partStmt->execute([
+                    $bike_id,
+                    $_POST['part_type'][$idx] ?? 'Accessory',
+                    $_POST['part_category'][$idx] ?? 'Accessories',
+                    $part_name,
+                    trim($_POST['part_brand'][$idx] ?? ''),
+                    trim($_POST['part_description'][$idx] ?? ''),
+                    max(0, (float)($_POST['part_price'][$idx] ?? 0)),
+                    max(1, (int)($_POST['part_quantity'][$idx] ?? 1)),
+                    uploadPartImage($partFile),
+                ]);
+            }
 
             $pdo->commit();
             header('Location: index.php?created=1');
@@ -149,6 +196,26 @@ body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;mi
 .btn-submit{background:var(--red);border:none;color:#fff;padding:10px 28px;border-radius:6px;font-family:'Orbitron',monospace;font-size:11px;font-weight:700;letter-spacing:1px;cursor:pointer;transition:background .2s;}
 .btn-submit:hover{background:var(--red2);}
 
+.parts-head{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:14px;}
+.parts-actions{display:flex;gap:8px;flex-wrap:wrap;}
+.btn-mini{background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:6px;padding:8px 12px;font-family:'Orbitron',monospace;font-size:9px;font-weight:700;letter-spacing:.8px;cursor:pointer;}
+.btn-mini:hover{border-color:var(--red);color:var(--red2);}
+.build-total{font-family:'Orbitron',monospace;color:var(--red2);font-size:13px;font-weight:900;}
+.parts-list{display:grid;gap:12px;}
+.part-card{background:#0b0b0b;border:1px solid var(--border2);border-radius:10px;padding:14px;display:grid;grid-template-columns:96px 1fr auto;gap:14px;align-items:start;animation:partIn .18s ease-out;}
+.part-img{width:96px;aspect-ratio:1;border:1px dashed var(--border2);border-radius:8px;background:var(--bg3);display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative;}
+.part-img input{position:absolute;inset:0;opacity:0;cursor:pointer;}
+.part-img img{width:100%;height:100%;object-fit:contain;padding:8px;display:none;}
+.part-img span{font-size:10px;color:var(--textd);text-align:center;padding:8px;}
+.part-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
+.part-fields input,.part-fields select,.part-fields textarea{background:var(--bg3);border:1px solid var(--border2);border-radius:6px;color:var(--text);font-family:'Rajdhani',sans-serif;font-size:13px;padding:8px 10px;outline:none;}
+.part-fields textarea{grid-column:1 / -1;min-height:64px;resize:vertical;}
+.part-fields input:focus,.part-fields select:focus,.part-fields textarea:focus{border-color:var(--red);}
+.part-remove{background:transparent;border:1px solid #4a1014;color:#f87171;border-radius:6px;padding:8px 10px;font-size:10px;font-weight:800;cursor:pointer;}
+.part-line-total{grid-column:1 / -1;color:var(--red2);font-family:'Orbitron',monospace;font-size:11px;font-weight:800;}
+@keyframes partIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+
+@media(max-width:720px){.part-card{grid-template-columns:1fr;}.part-img{width:100%;max-width:180px;}.part-fields{grid-template-columns:1fr;}}
 @media(max-width:580px){.form-grid{grid-template-columns:1fr;}}
 </style>
 </head>
@@ -262,6 +329,21 @@ body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;mi
 
       <hr class="divider">
 
+      <!-- ACCESSORIES & PARTS -->
+      <div class="parts-head">
+        <div>
+          <div class="section-title" style="margin-bottom:4px;border-bottom:none;padding-bottom:0;">Accessories &amp; Custom Parts</div>
+          <div class="build-total">Total Build Cost: <span id="partsTotal">&#8369;0</span></div>
+        </div>
+        <div class="parts-actions">
+          <button class="btn-mini" type="button" onclick="addPartRow('Accessory')">+ ADD ACCESSORY</button>
+          <button class="btn-mini" type="button" onclick="addPartRow('Part')">+ ADD PART</button>
+        </div>
+      </div>
+      <div class="parts-list" id="partsList"></div>
+
+      <hr class="divider">
+
       <div class="form-actions">
         <a href="index.php" class="btn-cancel">Cancel</a>
         <button type="submit" class="btn-submit">&#43; CREATE BIKE</button>
@@ -283,6 +365,82 @@ function previewImg(input) {
     };
     reader.readAsDataURL(input.files[0]);
   }
+}
+
+function peso(value) {
+  return '₱' + Number(value || 0).toLocaleString();
+}
+
+function addPartRow(type = 'Accessory') {
+  const list = document.getElementById('partsList');
+  const card = document.createElement('div');
+  card.className = 'part-card';
+  card.innerHTML = `
+    <label class="part-img">
+      <input type="file" name="part_image[]" accept="image/jpeg,image/png,image/webp" onchange="previewPartImage(this)">
+      <img alt="Part preview">
+      <span>Upload<br>Image</span>
+    </label>
+    <div class="part-fields">
+      <select name="part_type[]">
+        <option value="Accessory" ${type === 'Accessory' ? 'selected' : ''}>Accessory</option>
+        <option value="Part" ${type === 'Part' ? 'selected' : ''}>Part</option>
+      </select>
+      <select name="part_category[]">
+        <option>Wheels</option>
+        <option>Engine</option>
+        <option>Electrical</option>
+        <option>Body Parts</option>
+        <option>Accessories</option>
+      </select>
+      <input type="text" name="part_name[]" placeholder="Part name e.g. Racing Shock" required>
+      <input type="text" name="part_brand[]" placeholder="Brand">
+      <input type="number" name="part_price[]" min="0" step="0.01" placeholder="Price" oninput="updatePartsTotal()">
+      <input type="number" name="part_quantity[]" min="1" step="1" value="1" placeholder="Qty" oninput="updatePartsTotal()">
+      <textarea name="part_description[]" placeholder="Description"></textarea>
+      <div class="part-line-total">Line Total: <span>₱0</span></div>
+    </div>
+    <button class="part-remove" type="button" onclick="removePartRow(this)">REMOVE</button>
+  `;
+  list.appendChild(card);
+  updatePartsTotal();
+}
+
+function previewPartImage(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+    alert('Part image must be JPG, PNG, or WEBP.');
+    input.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = e => {
+    const box = input.closest('.part-img');
+    const img = box.querySelector('img');
+    const label = box.querySelector('span');
+    img.src = e.target.result;
+    img.style.display = 'block';
+    label.style.display = 'none';
+  };
+  reader.readAsDataURL(file);
+}
+
+function removePartRow(btn) {
+  btn.closest('.part-card').remove();
+  updatePartsTotal();
+}
+
+function updatePartsTotal() {
+  let total = 0;
+  document.querySelectorAll('.part-card').forEach(card => {
+    const price = Number(card.querySelector('[name="part_price[]"]').value || 0);
+    const qty = Math.max(1, Number(card.querySelector('[name="part_quantity[]"]').value || 1));
+    const line = price * qty;
+    total += line;
+    card.querySelector('.part-line-total span').textContent = peso(line);
+  });
+  document.getElementById('partsTotal').textContent = peso(total);
 }
 </script>
 </body>
