@@ -798,7 +798,7 @@ body{
   <div class="section-hdr">
     <div class="section-hdr-left">
       <h2 id="sectionLabel">Collection</h2>
-      <span class="section-count" id="bikeCount"><?= count($Bikes) ?> bike<?= count($bikes) !== 1 ? 's' : '' ?></span>
+      <span class="section-count" id="bikeCount"><?= count($bikes) ?> Bike<?= count($bikes) !== 1 ? 's' : '' ?></span>
     </div>
     <div class="right-side">
       <button class="filter-pill active" onclick="setStockFilter('all',this)">All</button>
