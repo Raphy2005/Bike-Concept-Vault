@@ -89,6 +89,12 @@ function initDatabase(PDO $pdo): void {
             FOREIGN KEY (bike_id) REFERENCES bikes(bike_id)
                 ON DELETE CASCADE ON UPDATE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+        CREATE TABLE IF NOT EXISTS app_settings (
+            setting_key   VARCHAR(60) PRIMARY KEY,
+            setting_value TEXT NOT NULL,
+            updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     ");
 
     // Keep older local databases compatible with the current app schema.
@@ -112,3 +118,31 @@ function initDatabase(PDO $pdo): void {
 }
 
 initDatabase($pdo);
+
+function getAppSettings(PDO $pdo): array {
+    $defaults = [
+        'theme_primary' => '#e8000d',
+        'theme_accent'  => '#9fe7ff',
+        'theme_surface' => '#080808',
+        'theme_card'    => '#161616',
+        'vault_pin'     => '654321',
+    ];
+
+    $rows = $pdo->query("SELECT setting_key, setting_value FROM app_settings")->fetchAll();
+    foreach ($rows as $row) {
+        if (array_key_exists($row['setting_key'], $defaults)) {
+            $defaults[$row['setting_key']] = $row['setting_value'];
+        }
+    }
+
+    return $defaults;
+}
+
+function setAppSetting(PDO $pdo, string $key, string $value): void {
+    $stmt = $pdo->prepare("
+        INSERT INTO app_settings (setting_key, setting_value)
+        VALUES (?, ?)
+        ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)
+    ");
+    $stmt->execute([$key, $value]);
+}

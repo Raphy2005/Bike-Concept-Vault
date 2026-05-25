@@ -1,16 +1,91 @@
 <?php
 require_once 'db.php';
 
+$appSettings = getAppSettings($pdo);
+
+function cleanThemeHex(string $value, string $fallback): string {
+    $value = trim($value);
+    return preg_match('/^#[0-9a-fA-F]{6}$/', $value) ? strtoupper($value) : $fallback;
+}
+
+function hexToRgbParts(string $hex): array {
+    $hex = ltrim($hex, '#');
+    return [
+        hexdec(substr($hex, 0, 2)),
+        hexdec(substr($hex, 2, 2)),
+        hexdec(substr($hex, 4, 2)),
+    ];
+}
+
+$theme = [
+    'primary' => cleanThemeHex($appSettings['theme_primary'] ?? '#E8000D', '#E8000D'),
+    'accent'  => cleanThemeHex($appSettings['theme_accent'] ?? '#9FE7FF', '#9FE7FF'),
+    'surface' => cleanThemeHex($appSettings['theme_surface'] ?? '#080808', '#080808'),
+    'card'    => cleanThemeHex($appSettings['theme_card'] ?? '#161616', '#161616'),
+];
+$primaryRgb = hexToRgbParts($theme['primary']);
+$accentRgb = hexToRgbParts($theme['accent']);
+$vaultPin = preg_match('/^\d{4,8}$/', (string)($appSettings['vault_pin'] ?? '654321'))
+    ? (string)$appSettings['vault_pin']
+    : '654321';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_GET['settings_action'])) {
+    header('Content-Type: application/json');
+    $payload = json_decode(file_get_contents('php://input'), true) ?: [];
+    $action = $_GET['settings_action'];
+
+    try {
+        if ($action === 'theme') {
+            $incomingTheme = [
+                'theme_primary' => cleanThemeHex($payload['primary'] ?? '', $theme['primary']),
+                'theme_accent'  => cleanThemeHex($payload['accent'] ?? '', $theme['accent']),
+                'theme_surface' => cleanThemeHex($payload['surface'] ?? '', $theme['surface']),
+                'theme_card'    => cleanThemeHex($payload['card'] ?? '', $theme['card']),
+            ];
+            foreach ($incomingTheme as $key => $value) {
+                setAppSetting($pdo, $key, $value);
+            }
+            echo json_encode(['ok' => true, 'theme' => [
+                'primary' => $incomingTheme['theme_primary'],
+                'accent'  => $incomingTheme['theme_accent'],
+                'surface' => $incomingTheme['theme_surface'],
+                'card'    => $incomingTheme['theme_card'],
+            ]]);
+            exit;
+        }
+
+        if ($action === 'pin') {
+            $currentPin = (string)($payload['current_pin'] ?? '');
+            $newPin = (string)($payload['new_pin'] ?? '');
+            if ($currentPin !== $vaultPin) {
+                echo json_encode(['ok' => false, 'message' => 'Current PIN is incorrect.']);
+                exit;
+            }
+            if (!preg_match('/^\d{4,8}$/', $newPin)) {
+                echo json_encode(['ok' => false, 'message' => 'Use a numeric PIN with 4 to 8 digits.']);
+                exit;
+            }
+            setAppSetting($pdo, 'vault_pin', $newPin);
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+
+        echo json_encode(['ok' => false, 'message' => 'Unknown settings action.']);
+    } catch (Throwable $e) {
+        http_response_code(500);
+        echo json_encode(['ok' => false, 'message' => 'Unable to save settings.']);
+    }
+    exit;
+}
+
 define('FALLBACK_BIKE_IMG', 'data:image/jpeg;base64,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ластакес…');
 
 $featured = $pdo->query("
     SELECT b.*, c.country_code, c.flag_emoji,
-           bv.color_name, bv.image_url AS variant_img,
-           i.stock_qty, i.stock_status
+           bv.image_url AS variant_img
     FROM bikes b
     JOIN categories    c  ON c.category_id = b.category_id
-    JOIN bike_variants bv ON bv.bike_id    = b.bike_id AND bv.is_default = 1
-    JOIN inventory     i  ON i.variant_id  = bv.variant_id
+    LEFT JOIN bike_variants bv ON bv.bike_id = b.bike_id AND bv.is_default = 1
     WHERE b.is_featured = 1
     LIMIT 1
 ")->fetch();
@@ -18,9 +93,8 @@ $featured = $pdo->query("
 $variants = [];
 if ($featured) {
     $stmt = $pdo->prepare("
-        SELECT bv.*, i.stock_qty, i.stock_status
+        SELECT bv.*
         FROM bike_variants bv
-        JOIN inventory i ON i.variant_id = bv.variant_id
         WHERE bv.bike_id = ?
         ORDER BY bv.is_default DESC, bv.variant_id ASC
     ");
@@ -34,12 +108,10 @@ $catHeroes = [];
 foreach ($categories as $cat) {
     $stmt = $pdo->prepare("
         SELECT b.*, c.country_code, c.flag_emoji,
-               bv.color_name, bv.image_url AS variant_img,
-               i.stock_qty, i.stock_status
+               bv.image_url AS variant_img
         FROM bikes b
         JOIN categories    c  ON c.category_id = b.category_id
-        JOIN bike_variants bv ON bv.bike_id = b.bike_id AND bv.is_default = 1
-        JOIN inventory     i  ON i.variant_id = bv.variant_id
+        LEFT JOIN bike_variants bv ON bv.bike_id = b.bike_id AND bv.is_default = 1
         WHERE b.category_id = ?
         ORDER BY b.is_featured DESC, b.bike_id DESC
         LIMIT 1
@@ -50,15 +122,13 @@ foreach ($categories as $cat) {
 }
 
 $sql = "
-    SELECT b.bike_id, b.bike_name, b.model, b.price, b.image_url, b.is_featured,
-           b.category_id,
+    SELECT b.bike_id, b.bike_name, b.model, b.edition, b.price, b.image_url, b.is_featured,
+           b.category_id, b.description,
            c.country_code, c.flag_emoji,
-           bv.color_name, bv.image_url AS variant_img,
-           i.stock_qty, i.stock_status
+           bv.image_url AS variant_img
     FROM bikes b
     JOIN categories    c  ON c.category_id  = b.category_id
-    JOIN bike_variants bv ON bv.bike_id     = b.bike_id AND bv.is_default = 1
-    JOIN inventory     i  ON i.variant_id   = bv.variant_id
+    LEFT JOIN bike_variants bv ON bv.bike_id = b.bike_id AND bv.is_default = 1
     ORDER BY b.is_featured DESC, b.bike_id DESC
 ";
 $bikes = $pdo->query($sql)->fetchAll();
@@ -83,17 +153,17 @@ foreach ($partRows as $part) {
     ];
 }
 
-function stockBadge(string $status): string {
-    $map = ['In Stock' => 'badge-green', 'Low Stock' => 'badge-yellow', 'Out of Stock' => 'badge-red'];
-    $cls = $map[$status] ?? 'badge-red';
-    return "<span class='badge $cls'>$status</span>";
-}
-
 function resolveImg(?string $dbPath, string $fallback): string {
     if ($dbPath && (str_starts_with($dbPath, 'http') || file_exists($dbPath))) {
         return htmlspecialchars($dbPath);
     }
     return $fallback;
+}
+
+function bikeImgPath(?string $dbPath): string {
+    $path = trim((string)$dbPath);
+    $normalized = strtolower(str_replace('\\', '/', $path));
+    return $normalized === 'assets/img/logo.png' ? '' : $path;
 }
 
 // Maps country_code (e.g. "JPN", "PHL") → ISO 3166-1 alpha-2 (e.g. "jp", "ph")
@@ -149,18 +219,21 @@ function flagImg(string $countryCode, string $alt = '', string $cls = ''): strin
 /* ── RESET & VARS ─────────────────────────────────────────────── */
 *{margin:0;padding:0;box-sizing:border-box;}
 :root{
-  --bg:#080808;
-  --bg2:#0e0e0e;
-  --bg3:#161616;
-  --bg4:#1c1c1c;
-  --red:#e8000d;
-  --red2:#ff2030;
-  --red3:#ff5060;
-  --reddim:rgba(232,0,13,.07);
-  --redbright:rgba(232,0,13,.15);
-  --border:#180001;
-  --border2:#2c0004;
-  --border3:#3d0005;
+  --bg:<?= htmlspecialchars($theme['surface']) ?>;
+  --bg2:color-mix(in srgb, <?= htmlspecialchars($theme['surface']) ?> 88%, #ffffff 12%);
+  --bg3:<?= htmlspecialchars($theme['card']) ?>;
+  --bg4:color-mix(in srgb, <?= htmlspecialchars($theme['card']) ?> 84%, #ffffff 16%);
+  --red:<?= htmlspecialchars($theme['primary']) ?>;
+  --red2:color-mix(in srgb, <?= htmlspecialchars($theme['primary']) ?> 82%, #ffffff 18%);
+  --red3:color-mix(in srgb, <?= htmlspecialchars($theme['primary']) ?> 66%, #ffffff 34%);
+  --cyan:<?= htmlspecialchars($theme['accent']) ?>;
+  --primary-rgb:<?= implode(',', $primaryRgb) ?>;
+  --accent-rgb:<?= implode(',', $accentRgb) ?>;
+  --reddim:rgba(var(--primary-rgb),.07);
+  --redbright:rgba(var(--primary-rgb),.15);
+  --border:rgba(var(--primary-rgb),.11);
+  --border2:rgba(var(--primary-rgb),.24);
+  --border3:rgba(var(--primary-rgb),.38);
   --text:#eeeeee;
   --textd:#666;
   --textdd:#2c2c2c;
@@ -179,15 +252,18 @@ body{
 .topbar{
   background:rgba(8,8,8,.97);
   border-bottom:1px solid var(--border2);
-  padding:0 28px;
+  padding:10px 24px;
   display:flex;
   align-items:center;
   justify-content:space-between;
-  height:60px;
+  gap:14px 20px;
+  min-height:70px;
+  height:auto;
   position:sticky;
   top:0;
   z-index:100;
   backdrop-filter:blur(14px);
+  overflow:visible;
 }
 /* red accent line under topbar */
 .topbar::after{
@@ -203,6 +279,9 @@ body{
   text-decoration:none;
   font-family:'Orbitron',monospace;
   color:var(--text);
+  flex:0 0 auto;
+  min-width:178px;
+  white-space:nowrap;
 }
 .logo-icon{
   width:34px;height:34px;
@@ -211,18 +290,25 @@ body{
   display:flex;align-items:center;justify-content:center;
   flex-shrink:0;
 }
-.logo-icon svg{width:20px;height:20px;fill:none;stroke:#fff;stroke-width:1.6;}
+.logo-icon img{width:100%;height:100%;object-fit:cover;border-radius:inherit;display:block;}
 .logo-text .top{color:var(--red2);font-size:11.5px;font-weight:900;letter-spacing:.5px;display:block;}
 .logo-text .bot{color:var(--textd);font-size:8.5px;letter-spacing:3.5px;display:block;}
 
-.cat-nav{display:flex;align-items:center;gap:2px;margin:0 14px;}
+.cat-nav{
+  display:flex;align-items:center;justify-content:center;
+  gap:8px;margin:0;
+  flex:1 1 auto;min-width:0;
+  flex-wrap:wrap;row-gap:8px;
+  overflow:visible;
+}
 .cat-nav a{
   display:flex;align-items:center;gap:5px;
-  padding:6px 13px;border-radius:6px;
+  min-height:36px;padding:0 13px;border-radius:6px;
   font-size:10.5px;font-weight:700;letter-spacing:.8px;
   text-decoration:none;color:var(--textd);
   transition:all .15s;border:1px solid transparent;
   text-transform:uppercase;cursor:pointer;
+  white-space:nowrap;flex:0 0 auto;
 }
 .cat-nav a .flag{
   display:inline-flex;align-items:center;
@@ -233,18 +319,30 @@ body{
 .cat-nav a:hover{color:var(--text);background:var(--bg3);border-color:var(--border2);}
 .cat-nav a.active{color:var(--red2);background:var(--reddim);border-color:var(--border3);}
 
-.topbar-right{display:flex;align-items:center;gap:8px;}
+.topbar-right{
+  display:flex;align-items:center;justify-content:flex-end;
+  gap:8px;flex:0 0 auto;min-width:max-content;
+}
 .search-box{
   background:var(--bg3);
   border:1px solid var(--border2);
   border-radius:6px;
   padding:0 12px;
   display:flex;align-items:center;gap:7px;
-  width:210px;height:36px;
+  width:240px;min-width:210px;height:38px;
   transition:border-color .15s;
+  box-sizing:border-box;
+  flex:0 1 240px;
 }
 .search-box:focus-within{border-color:var(--red);}
 .search-box svg{width:14px;height:14px;stroke:var(--textd);flex-shrink:0;}
+.search-submit{
+  width:22px;height:22px;border:0;background:none;color:var(--textd);
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;padding:0;transition:color .15s,transform .15s;
+}
+.search-submit:hover{color:var(--red2);transform:scale(1.05);}
+.search-submit svg{stroke:currentColor;}
 .search-box input{
   background:none;border:none;outline:none;
   color:var(--text);font-family:'Rajdhani',sans-serif;
@@ -259,18 +357,138 @@ body{
 .search-clear:hover{color:var(--red2);}
 .search-clear.visible{display:block;}
 
-/* ADD NEW button in topbar */
+/* ADD BIKE button in topbar */
 .btn-add-new{
   display:flex;align-items:center;gap:6px;
   background:var(--red);border:none;border-radius:6px;
-  padding:0 16px;height:36px;
+  padding:0 16px;height:38px;min-width:112px;
   color:#fff;font-family:'Orbitron',monospace;
   font-size:9.5px;font-weight:700;letter-spacing:1px;
   cursor:pointer;text-decoration:none;
   transition:background .15s;white-space:nowrap;
+  justify-content:center;flex:0 0 auto;
 }
 .btn-add-new:hover{background:var(--red2);}
 .btn-add-new svg{width:13px;height:13px;stroke:#fff;stroke-width:2.2;}
+.btn-theme-settings{
+  width:38px;height:38px;border-radius:6px;border:1px solid var(--border2);
+  background:var(--bg3);color:var(--text);display:flex;align-items:center;justify-content:center;
+  cursor:pointer;transition:border-color .15s,box-shadow .15s;color:#fff;flex:0 0 auto;
+}
+.btn-theme-settings svg{width:15px;height:15px;stroke:currentColor;stroke-width:2.1;}
+.settings-panel{
+  position:fixed;top:82px;right:24px;width:min(360px, calc(100vw - 28px));
+  background:rgba(10,13,19,.96);border:1px solid var(--border2);border-radius:8px;
+  padding:18px;z-index:180;display:none;text-align:left;
+  box-shadow:0 26px 70px rgba(0,0,0,.62),0 0 24px rgba(var(--accent-rgb),.12);
+}
+.settings-panel.show{display:block;}
+.settings-panel::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;border-radius:8px 8px 0 0;
+  background:linear-gradient(90deg,var(--red),var(--cyan),transparent);
+}
+.settings-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+.settings-title{font-family:'Orbitron',monospace;font-size:12px;font-weight:900;letter-spacing:1.2px;color:var(--text);text-transform:uppercase;}
+.settings-close{
+  width:28px;height:28px;border:1px solid var(--border2);border-radius:6px;background:var(--bg3);
+  color:var(--textd);cursor:pointer;font-size:15px;line-height:1;
+}
+.settings-group{border-top:1px solid rgba(var(--accent-rgb),.14);padding-top:14px;margin-top:14px;}
+.settings-group:first-of-type{border-top:0;padding-top:0;margin-top:0;}
+.settings-label{font-family:'Orbitron',monospace;font-size:10px;font-weight:800;letter-spacing:1px;color:var(--red2);text-transform:uppercase;margin-bottom:10px;}
+.theme-color-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.theme-color-field{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  border:1px solid var(--border2);background:rgba(255,255,255,.035);border-radius:7px;
+  padding:9px 10px;color:var(--textd);font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;
+}
+.theme-color-field input{width:42px;height:28px;border:0;background:transparent;padding:0;cursor:pointer;}
+.pin-settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.pin-settings-grid input{
+  width:100%;height:38px;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;
+  color:var(--text);font-family:'Orbitron',monospace;font-size:13px;text-align:center;letter-spacing:3px;outline:none;
+}
+.pin-settings-grid input:focus{border-color:var(--red);box-shadow:0 0 0 2px rgba(var(--primary-rgb),.18);}
+.settings-actions{display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap;}
+.settings-save{
+  height:36px;padding:0 15px;border-radius:6px;border:1px solid rgba(var(--accent-rgb),.55);
+  background:var(--red);color:#fff;font-family:'Orbitron',monospace;font-size:9.5px;font-weight:800;
+  letter-spacing:1px;cursor:pointer;
+}
+.settings-secondary{
+  height:36px;padding:0 13px;border-radius:6px;border:1px solid var(--border2);
+  background:var(--bg3);color:var(--text);font-family:'Rajdhani',sans-serif;font-size:12px;font-weight:800;
+  letter-spacing:.4px;cursor:pointer;
+}
+.settings-status{min-height:16px;color:var(--textd);font-size:12px;font-weight:700;}
+
+@media (max-width:1180px){
+  .topbar{padding:10px 18px;gap:12px;}
+  .logo{min-width:166px;}
+  .cat-nav{
+    justify-content:flex-start;
+    flex-wrap:nowrap;
+    overflow-x:auto;
+    padding-bottom:2px;
+    scrollbar-width:none;
+  }
+  .cat-nav::-webkit-scrollbar{display:none;}
+  .search-box{width:220px;min-width:190px;flex-basis:220px;}
+}
+
+@media (max-width:920px){
+  .topbar{
+    flex-wrap:wrap;
+    align-items:center;
+    min-height:112px;
+    padding:10px 16px 12px;
+  }
+  .logo{order:1;}
+  .topbar-right{order:2;margin-left:auto;}
+  .settings-panel{top:124px;right:16px;}
+  .cat-nav{
+    order:3;
+    flex:1 0 100%;
+    width:100%;
+    justify-content:flex-start;
+  }
+}
+
+@media (max-width:640px){
+  .topbar{
+    min-height:154px;
+    padding:10px 12px 12px;
+    gap:10px;
+  }
+  .logo{min-width:0;}
+  .logo-icon{width:32px;height:32px;}
+  .logo-icon img{width:100%;height:100%;}
+  .logo-text .top{font-size:10.5px;}
+  .logo-text .bot{font-size:8px;letter-spacing:3px;}
+  .cat-nav{order:2;}
+  .cat-nav a{min-height:34px;padding:0 11px;font-size:9.5px;}
+  .cat-nav a .flag{width:18px;height:13px;}
+  .topbar-right{
+    order:3;
+    width:100%;
+    min-width:0;
+    margin-left:0;
+  }
+  .search-box{
+    flex:1 1 auto;
+    width:auto;
+    min-width:0;
+    height:38px;
+  }
+  .btn-add-new{
+    min-width:104px;
+    height:38px;
+    padding:0 12px;
+    font-size:9px;
+  }
+  .settings-panel{top:166px;right:12px;}
+  .theme-color-grid,.pin-settings-grid{grid-template-columns:1fr;}
+}
 
 /* ── HERO ─────────────────────────────────────────────────────── */
 .hero{
@@ -320,66 +538,64 @@ body{
 .hero-wm-brand{
   font-family:'Orbitron',monospace;
   font-size:92px;font-weight:900;
-  font-style:italic;letter-spacing:-4px;line-height:.88;
+  font-style:italic;letter-spacing:0;line-height:.88;
+  white-space:nowrap;
 }
-.hero-wm-brand .part-red{color:var(--red);}
-.hero-wm-brand .part-white{color:rgba(255,255,255,.95);}
+.hero-wm-brand .part-red{color:var(--red);display:inline-block;}
+.hero-wm-brand .part-white{color:rgba(255,255,255,.95);display:inline-block;margin-left:.14em;}
 .hero-wm-sub{
-  font-size:11px;letter-spacing:8px;color:var(--textd);
-  margin-top:10px;text-transform:uppercase;font-style:normal;
+  display:inline-block;
+  font-size:12px;font-weight:800;letter-spacing:7px;color:rgba(255,255,255,.78);
+  margin-top:12px;text-transform:uppercase;font-style:normal;
+  padding:4px 2px;
+  text-shadow:
+    0 2px 4px rgba(0,0,0,.95),
+    0 0 12px rgba(232,0,13,.45),
+    0 0 2px rgba(255,255,255,.7);
 }
 
 .hero-bike-img{
   position:relative;z-index:3;
-  max-width:620px;max-height:360px;width:100%;
+  width:min(72vw,680px);height:360px;
   object-fit:contain;
   filter:drop-shadow(0 20px 55px rgba(232,0,13,.16)) drop-shadow(0 8px 20px rgba(0,0,0,.7));
   transform:scale(1.05);
   transition:opacity .28s ease;
-}
-
-/* ── VARIANT BAR ── */
-.variants-bar{
-  position:absolute;bottom:0;left:0;right:0;z-index:20;
-  display:flex;flex-direction:column;gap:6px;
-  padding:10px 42px 14px;
-  background:linear-gradient(to top,rgba(0,0,0,.76) 55%,transparent 100%);
-  pointer-events:auto;
-}
-.var-choose{
-  font-size:9.5px;font-weight:700;letter-spacing:2px;
-  color:var(--textd);text-transform:uppercase;
-}
-.variants-bottom{display:flex;gap:10px;flex-wrap:wrap;}
-.var-item{
-  display:flex;flex-direction:column;align-items:center;gap:4px;
   cursor:pointer;
 }
-.var-thumb{
-  width:56px;height:48px;border-radius:6px;
-  background:var(--bg3);border:2px solid var(--border2);
-  overflow:hidden;display:flex;align-items:center;justify-content:center;
-  transition:border-color .15s;
+.hero-bike-img:hover{filter:drop-shadow(0 20px 55px rgba(232,0,13,.28)) drop-shadow(0 8px 20px rgba(0,0,0,.7));}
+.hero-carousel-btn{
+  position:absolute;top:50%;z-index:22;
+  width:44px;height:44px;border-radius:6px;
+  border:1px solid var(--border2);
+  background:rgba(8,8,8,.72);color:var(--text);
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;transform:translateY(-50%);
+  backdrop-filter:blur(8px);
+  transition:background .15s,border-color .15s,color .15s,transform .15s;
 }
-.var-thumb img{width:100%;height:100%;object-fit:cover;}
-.var-swatch{width:100%;height:100%;}
-.var-item.active .var-thumb,
-.var-item:hover .var-thumb{border-color:var(--red2);}
-.var-name{
-  font-size:8.5px;font-weight:700;color:var(--textd);
-  letter-spacing:.4px;text-transform:uppercase;
-  text-align:center;max-width:60px;line-height:1.2;
+.hero-carousel-btn:hover{
+  background:rgba(232,0,13,.16);border-color:var(--red);color:var(--red2);
+  transform:translateY(-50%) scale(1.04);
 }
+.hero-carousel-btn svg{width:22px;height:22px;stroke:currentColor;stroke-width:2.4;}
+.hero-carousel-btn.prev{left:24px;}
+.hero-carousel-btn.next{right:24px;}
+
+/* ── VARIANT BAR ── */
 
 /* ── HERO RIGHT PANEL ── */
 .hero-right{
   width:296px;flex-shrink:0;
-  background:rgba(6,6,6,.78);
+  background:
+    radial-gradient(circle at 42% 45%, rgba(232,0,13,.2) 0%, rgba(232,0,13,.08) 30%, transparent 68%),
+    rgba(6,6,6,.88);
   border-left:1px solid var(--border2);
   padding:0 24px 28px;
   display:flex;flex-direction:column;justify-content:flex-end;
   position:relative;z-index:5;
   backdrop-filter:blur(10px);
+  overflow:hidden;
 }
 /* colored top accent */
 .hero-right::before{
@@ -398,27 +614,19 @@ body{
 
 .hero-price{
   font-family:'Orbitron',monospace;
-  font-size:36px;font-weight:900;
-  color:var(--red2);letter-spacing:-1.5px;line-height:1;
-  margin-bottom:4px;
+  font-size:42px;font-weight:900;
+  font-style:italic;
+  color:#ff1730;letter-spacing:-1px;line-height:.9;
+  margin-bottom:8px;
+  text-shadow:0 0 18px rgba(232,0,13,.36),0 2px 0 rgba(0,0,0,.65);
 }
 .hero-model{
   font-family:'Orbitron',monospace;
-  font-size:12px;font-weight:700;
-  color:var(--text);letter-spacing:.6px;
-  margin-bottom:14px;
+  font-size:14px;font-weight:900;
+  color:#f7f7f7;letter-spacing:.2px;
+  margin-bottom:16px;
+  text-shadow:0 1px 0 #fff,0 0 14px rgba(255,255,255,.18);
 }
-
-.stock-pill{
-  display:inline-flex;align-items:center;gap:6px;
-  padding:5px 14px;border-radius:20px;
-  font-size:10.5px;font-weight:700;letter-spacing:.5px;
-  text-transform:uppercase;margin-bottom:14px;width:fit-content;
-}
-.stock-pill.green{background:var(--red);color:#fff;}
-.stock-pill.yellow{background:rgba(234,179,8,.12);color:#eab308;border:1px solid rgba(234,179,8,.25);}
-.stock-pill.red-pill{background:rgba(239,68,68,.1);color:#ef4444;border:1px solid rgba(239,68,68,.18);}
-.stock-dot{width:5px;height:5px;border-radius:50%;background:currentColor;}
 
 .hero-desc{
   font-size:12.5px;color:var(--textd);line-height:1.9;
@@ -427,13 +635,13 @@ body{
 
 /* mini stats grid */
 .hero-stats{
-  display:grid;grid-template-columns:1fr 1fr;
+  display:grid;grid-template-columns:1fr;
   gap:8px;margin-bottom:18px;
 }
 .hstat{
-  background:rgba(255,255,255,.025);
-  border:1px solid var(--border);
-  border-radius:6px;padding:7px 10px;
+  background:rgba(10,10,10,.72);
+  border:1px solid rgba(232,0,13,.18);
+  border-radius:6px;padding:8px 10px;
 }
 .hstat-lbl{
   font-size:8px;font-weight:700;letter-spacing:1.5px;
@@ -445,12 +653,14 @@ body{
   display:flex;align-items:center;gap:5px;
 }
 .hstat-flag{
-  width:20px;height:14px;border-radius:2px;
+  width:24px;height:17px;border-radius:2px;
   object-fit:cover;vertical-align:middle;flex-shrink:0;
+  border:1px solid rgba(255,255,255,.16);
 }
 
 .hero-btns{display:flex;gap:8px;}
-.btn-hero-edit{
+.btn-hero-edit,
+.btn-hero-delete{
   flex:1;background:#fff;color:#111;border:none;border-radius:7px;
   padding:11px 14px;
   font-family:'Orbitron',monospace;font-size:10px;font-weight:700;
@@ -460,17 +670,12 @@ body{
 }
 .btn-hero-edit:hover{background:#e0e0e0;}
 .btn-hero-edit svg{width:13px;height:13px;stroke:#111;stroke-width:2;}
-.btn-hero-add{
-  flex:1;background:var(--bg3);color:var(--textd);
+.btn-hero-delete{
+  background:rgba(232,0,13,.12);color:#f87171;
   border:1px solid var(--border2);border-radius:7px;
-  padding:11px 14px;
-  font-family:'Orbitron',monospace;font-size:10px;font-weight:700;
-  letter-spacing:1px;cursor:pointer;text-decoration:none;
-  display:flex;align-items:center;justify-content:center;gap:6px;
-  transition:all .15s;
 }
-.btn-hero-add:hover{border-color:var(--red);color:var(--red3);}
-.btn-hero-add svg{width:13px;height:13px;stroke:currentColor;stroke-width:2;}
+.btn-hero-delete:hover{background:rgba(232,0,13,.18);border-color:var(--red);color:#fff;}
+.btn-hero-delete svg{width:13px;height:13px;stroke:currentColor;stroke-width:2;}
 
 .sparkle{
   position:absolute;bottom:22px;right:22px;
@@ -482,9 +687,11 @@ body{
 
 /* BUILD PARTS SYSTEM */
 .build-system{
+  display:none;
   padding:24px 28px 0;
   background:linear-gradient(180deg,#0a0a0a 0%,var(--bg) 100%);
 }
+.build-system.show{display:block;}
 .build-shell{
   border:1px solid var(--border2);
   border-radius:var(--card-radius);
@@ -553,11 +760,16 @@ body{
 .part-add-panel textarea{resize:vertical;min-height:38px;}
 .part-add-panel input[type="file"]{padding:7px 10px;color:var(--textd);}
 .part-add-panel input:focus,.part-add-panel select:focus{outline:none;border-color:var(--red);}
-.part-add-panel button{
+.part-add-actions{display:flex;gap:8px;align-items:stretch;}
+.part-add-actions button{
   background:#fff;color:#111;border:none;border-radius:6px;
   font-family:'Orbitron',monospace;font-size:9px;font-weight:800;
   letter-spacing:1px;padding:0 14px;cursor:pointer;
 }
+.part-add-actions .part-add-cancel{
+  background:var(--bg3);border:1px solid var(--border2);color:var(--textd);
+}
+.part-add-actions .part-add-cancel:hover{border-color:var(--border3);color:var(--text);}
 .parts-list{display:flex;flex-direction:column;}
 .part-row{
   display:grid;grid-template-columns:64px minmax(210px,1.25fr) minmax(130px,.8fr) 112px 82px 120px 148px;
@@ -709,7 +921,7 @@ body{
   .build-system{padding:16px 12px 0;}
   .build-head,.build-tools{padding:14px;}
   .part-add-panel{grid-template-columns:1fr;padding:12px;}
-  .part-add-panel button{height:38px;}
+  .part-add-actions button{height:38px;flex:1;}
   .part-row{grid-template-columns:54px 1fr;gap:10px;padding:12px;}
   .part-cat,.part-price,.part-qty,.part-line-total,.part-actions{grid-column:1 / span 2;}
   .part-actions button{flex:1;}
@@ -732,15 +944,6 @@ body{
   background:var(--bg3);border:1px solid var(--border2);
   border-radius:12px;padding:2px 10px;
 }
-.section-hdr .right-side{display:flex;align-items:center;gap:6px;}
-.filter-pill{
-  background:var(--bg3);border:1px solid var(--border2);
-  border-radius:5px;padding:4px 11px;
-  font-size:10px;font-weight:700;letter-spacing:.5px;
-  color:var(--textd);cursor:pointer;
-  transition:all .15s;font-family:'Rajdhani',sans-serif;
-}
-.filter-pill:hover,.filter-pill.active{border-color:var(--border3);color:var(--text);}
 
 /* ── GRID ── */
 .bike-grid{
@@ -829,17 +1032,8 @@ body{
 }
 .card-btn.edit{background:var(--bg3);border:1px solid var(--border2);color:var(--text);}
 .card-btn.edit:hover{border-color:var(--red);color:var(--red3);}
-.card-btn.del{background:none;border:1px solid var(--border);color:var(--textd);}
-.card-btn.del:hover{border-color:#7f1d1d;color:#f87171;}
-
-/* ── BADGES ── */
-.badge{
-  display:inline-block;font-size:9.5px;font-weight:700;
-  letter-spacing:.4px;padding:2.5px 9px;border-radius:12px;
-}
-.badge-green{background:rgba(34,197,94,.1);color:#22c55e;border:1px solid rgba(34,197,94,.18);}
-.badge-yellow{background:rgba(234,179,8,.1);color:#eab308;border:1px solid rgba(234,179,8,.18);}
-.badge-red{background:rgba(239,68,68,.1);color:#ef4444;border:1px solid rgba(239,68,68,.18);}
+.card-btn.del{background:rgba(232,0,13,.08);border:1px solid #431014;color:#f87171;}
+.card-btn.del:hover{background:rgba(232,0,13,.16);border-color:var(--red);color:#fff;}
 
 /* ── DELETE MODAL ── */
 .modal-overlay{
@@ -880,6 +1074,46 @@ body{
 .btn-confirm-del:hover{background:var(--red2);}
 
 /* ── EMPTY STATE ── */
+/* Holographic PIN gate */
+.pin-modal{
+  background:
+    linear-gradient(135deg, rgba(159,231,255,.1), rgba(232,0,13,.16)),
+    rgba(9,12,18,.9);
+  border:1px solid rgba(159,231,255,.56);
+  box-shadow:0 0 0 1px rgba(255,26,36,.24),0 24px 70px rgba(0,0,0,.72),inset 0 0 38px rgba(159,231,255,.1);
+  overflow:hidden;
+}
+.pin-modal::before{height:1px;background:linear-gradient(90deg,var(--red2),#9fe7ff,transparent);}
+.pin-modal::after{
+  content:'';position:absolute;inset:14px;pointer-events:none;
+  border:1px solid rgba(159,231,255,.2);
+  background:repeating-linear-gradient(0deg, rgba(159,231,255,.05) 0 1px, transparent 1px 7px);
+}
+.pin-core{position:relative;z-index:1;}
+.pin-orb{
+  width:54px;height:54px;margin:0 auto 14px;border-radius:50%;
+  border:1px solid rgba(159,231,255,.78);
+  display:flex;align-items:center;justify-content:center;
+  color:#dff7ff;font-family:'Orbitron',monospace;font-size:22px;font-weight:900;
+  text-shadow:0 0 14px rgba(159,231,255,.85);
+  box-shadow:0 0 28px rgba(159,231,255,.28),inset 0 0 22px rgba(255,26,36,.18);
+}
+.pin-input{
+  width:100%;height:46px;margin:4px 0 10px;
+  background:rgba(6,12,20,.72);border:1px solid rgba(159,231,255,.65);border-radius:7px;
+  color:#fff;text-align:center;font-family:'Orbitron',monospace;font-size:18px;font-weight:800;letter-spacing:8px;
+  outline:none;box-shadow:inset 0 0 18px rgba(159,231,255,.12),0 0 18px rgba(159,231,255,.14);
+}
+.pin-input:focus{border-color:var(--red2);box-shadow:inset 0 0 18px rgba(159,231,255,.16),0 0 22px rgba(232,0,13,.32);}
+.pin-error{min-height:18px;color:#ff8b92;font-size:12px;font-weight:700;margin-bottom:14px;text-transform:uppercase;letter-spacing:.8px;}
+.btn-pin-unlock{
+  background:linear-gradient(180deg, rgba(255,83,93,.95), rgba(199,0,13,.95));
+  border:1px solid rgba(255,184,188,.72);color:#fff;padding:10px 24px;border-radius:6px;
+  font-family:'Orbitron',monospace;font-size:10px;font-weight:800;letter-spacing:1px;cursor:pointer;
+  box-shadow:0 0 22px rgba(232,0,13,.38);
+}
+.btn-pin-unlock:hover{filter:brightness(1.1);}
+
 .empty{text-align:center;padding:60px 20px;color:var(--textd);}
 .empty-icon{font-size:40px;margin-bottom:12px;opacity:.35;}
 .empty h3{font-family:'Orbitron',monospace;font-size:13px;margin-bottom:8px;color:var(--textdd);}
@@ -895,6 +1129,86 @@ body{
   display:flex;align-items:center;gap:8px;
 }
 .toast.hide{transform:translateY(16px);opacity:0;}
+
+/* Holographic buttons only */
+.btn-add-new,.btn-theme-settings,.settings-save,.settings-secondary,.btn-hero-edit,.btn-hero-delete,.btn-add-part,
+.part-add-actions button,.part-actions button,.card-btn,.card-btn.edit,.card-btn.del,
+.btn-cancel,.btn-confirm-del,.btn-pin-unlock{
+  position:relative;overflow:hidden;
+  border:1px solid rgba(159,231,255,.55);
+  background:
+    linear-gradient(135deg, rgba(159,231,255,.2), rgba(255,52,66,.2) 52%, rgba(159,231,255,.12)),
+    rgba(12,16,24,.86);
+  color:#fff;
+  box-shadow:0 0 18px rgba(159,231,255,.14), inset 0 0 18px rgba(255,255,255,.08);
+}
+.btn-add-new::after,.btn-theme-settings::after,.settings-save::after,.settings-secondary::after,.btn-hero-edit::after,.btn-hero-delete::after,.btn-add-part::after,
+.part-add-actions button::after,.part-actions button::after,.card-btn::after,.card-btn.edit::after,.card-btn.del::after,
+.btn-cancel::after,.btn-confirm-del::after,.btn-pin-unlock::after{
+  content:'';position:absolute;inset:-60% -35%;pointer-events:none;
+  background:linear-gradient(115deg, transparent 35%, rgba(255,255,255,.34) 48%, transparent 61%);
+  transform:translateX(-70%);transition:transform .35s ease;
+}
+.btn-add-new:hover,.btn-theme-settings:hover,.settings-save:hover,.settings-secondary:hover,.btn-hero-edit:hover,.btn-hero-delete:hover,.btn-add-part:hover,
+.part-add-actions button:hover,.part-actions button:hover,.card-btn:hover,.card-btn.edit:hover,.card-btn.del:hover,
+.btn-cancel:hover,.btn-confirm-del:hover,.btn-pin-unlock:hover{
+  border-color:rgba(255,179,184,.78);
+  box-shadow:0 0 24px rgba(255,52,66,.26),0 0 18px rgba(159,231,255,.2), inset 0 0 18px rgba(255,255,255,.12);
+  filter:brightness(1.08);
+}
+.btn-add-new:hover::after,.btn-theme-settings:hover::after,.settings-save:hover::after,.settings-secondary:hover::after,.btn-hero-edit:hover::after,.btn-hero-delete:hover::after,.btn-add-part:hover::after,
+.part-add-actions button:hover::after,.part-actions button:hover::after,.card-btn:hover::after,.card-btn.edit:hover::after,.card-btn.del:hover::after,
+.btn-cancel:hover::after,.btn-confirm-del:hover::after,.btn-pin-unlock:hover::after{transform:translateX(70%);}
+.btn-hero-edit,
+.btn-hero-edit:hover,
+.btn-hero-edit:focus,
+.btn-hero-edit:active{
+  background:
+    linear-gradient(135deg, rgba(var(--primary-rgb),.34), rgba(58,0,6,.82)),
+    color-mix(in srgb, var(--bg3) 82%, #000000 18%);
+  border:1px solid rgba(var(--primary-rgb),.72);
+  color:#fff;
+  opacity:1;
+  filter:none;
+  outline:none;
+  text-shadow:0 1px 2px rgba(0,0,0,.7);
+  box-shadow:0 0 18px rgba(var(--primary-rgb),.28), inset 0 0 16px rgba(255,255,255,.08);
+}
+.btn-hero-edit::after,
+.card-btn.edit::after{
+  display:block;
+  opacity:.28;
+  z-index:0;
+}
+.btn-hero-edit > *,
+.card-btn.edit > *{
+  position:relative;
+  z-index:1;
+}
+.btn-hero-edit svg{stroke:currentColor;}
+.card-btn.edit{
+  background:
+    linear-gradient(135deg, rgba(var(--primary-rgb),.24), rgba(40,0,4,.72)),
+    color-mix(in srgb, var(--bg3) 88%, #000000 12%);
+  border-color:rgba(var(--primary-rgb),.64);
+  color:#fff;
+  text-shadow:0 1px 2px rgba(0,0,0,.65);
+}
+.card-btn.edit:hover,
+.card-btn.edit:focus,
+.card-btn.edit:active{
+  background:
+    linear-gradient(135deg, rgba(var(--primary-rgb),.34), rgba(58,0,6,.78)),
+    color-mix(in srgb, var(--bg3) 80%, #000000 20%);
+  border-color:var(--red2);
+  color:#fff;
+  opacity:1;
+  filter:none;
+  outline:none;
+  box-shadow:0 0 18px rgba(var(--primary-rgb),.28), inset 0 0 16px rgba(255,255,255,.08);
+}
+.card-btn.del,.btn-hero-delete{color:#ffd4d7;}
+
 </style>
 </head>
 <body>
@@ -903,7 +1217,7 @@ body{
 <header class="topbar">
   <a href="index.php" class="logo">
     <div class="logo-icon">
-      <svg viewBox="0 0 22 22"><polygon points="11,2 20,8 20,14 11,20 2,14 2,8"/><polyline points="11,2 11,20"/><line x1="2" y1="8" x2="20" y2="8"/><line x1="2" y1="14" x2="20" y2="14"/></svg>
+      <img src="assets/img/logo.png" alt="Bike Concept Vault">
     </div>
     <div class="logo-text">
       <span class="top">BIKE CONCEPT</span>
@@ -923,19 +1237,59 @@ body{
   </nav>
 
   <div class="topbar-right">
-    <div class="search-box">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="17" y1="17" x2="22" y2="22"/></svg>
-      <input type="text" id="liveSearch" placeholder="Search bikes..." autocomplete="off"
-             oninput="applyFilters()">
+    <form class="search-box" role="search" onsubmit="performSearch(event)">
+      <button class="search-submit" type="submit" title="Search" aria-label="Search bikes">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="17" y1="17" x2="22" y2="22"/></svg>
+      </button>
+      <input type="text" id="liveSearch" placeholder="Search bikes..." autocomplete="off">
       <button class="search-clear" id="searchClear"
-              onclick="clearSearch()" title="Clear">&#10005;</button>
-    </div>
-    <a href="create.php" class="btn-add-new">
+              type="button" onclick="clearSearch()" title="Clear">&#10005;</button>
+    </form>
+    <a href="create.php" class="btn-add-new" onclick="return requireVaultPin(event, this.href, 'ADD NEW BIKE')">
       <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       ADD BIKE
     </a>
+    <button class="btn-theme-settings" type="button" onclick="toggleSettingsPanel()" aria-label="Theme settings" title="Theme settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.65 1.65 0 0 0 15 19.4a1.65 1.65 0 0 0-1 .6V20a2 2 0 1 1-4 0v-.1a1.65 1.65 0 0 0-1-.6 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-.6-1H4a2 2 0 1 1 0-4h.1a1.65 1.65 0 0 0 .6-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-.6V4a2 2 0 1 1 4 0v.1a1.65 1.65 0 0 0 1 .6 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.18.31.38.65.6 1H20a2 2 0 1 1 0 4h-.1c-.22.35-.42.69-.5 1z"></path>
+      </svg>
+    </button>
   </div>
 </header>
+
+<aside class="settings-panel" id="settingsPanel" aria-label="Theme settings">
+  <div class="settings-head">
+    <div class="settings-title">Theme Settings</div>
+    <button class="settings-close" type="button" onclick="closeSettingsPanel()" aria-label="Close settings">&times;</button>
+  </div>
+  <div class="settings-group">
+    <div class="settings-label">Interface Colors</div>
+    <div class="theme-color-grid">
+      <label class="theme-color-field">Primary <input type="color" id="themePrimary" value="<?= htmlspecialchars($theme['primary']) ?>"></label>
+      <label class="theme-color-field">Accent <input type="color" id="themeAccent" value="<?= htmlspecialchars($theme['accent']) ?>"></label>
+      <label class="theme-color-field">Surface <input type="color" id="themeSurface" value="<?= htmlspecialchars($theme['surface']) ?>"></label>
+      <label class="theme-color-field">Cards <input type="color" id="themeCard" value="<?= htmlspecialchars($theme['card']) ?>"></label>
+    </div>
+    <div class="settings-actions">
+      <button class="settings-save" type="button" onclick="saveThemeSettings()">SAVE COLORS</button>
+      <button class="settings-secondary" type="button" onclick="resetThemeSettings()">RESET THEME</button>
+      <button class="settings-secondary" type="button" onclick="cancelThemeChanges()">CANCEL CHANGES</button>
+      <span class="settings-status" id="themeStatus"></span>
+    </div>
+  </div>
+  <div class="settings-group">
+    <div class="settings-label">Change PIN Password</div>
+    <div class="pin-settings-grid">
+      <input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" id="currentPinSetting" placeholder="Current PIN" autocomplete="off">
+      <input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" id="newPinSetting" placeholder="New PIN" autocomplete="off">
+    </div>
+    <div class="settings-actions">
+      <button class="settings-save" type="button" onclick="savePinSettings()">SAVE PIN</button>
+      <span class="settings-status" id="pinStatus"></span>
+    </div>
+  </div>
+</aside>
 
 <!-- ── TOASTS ─────────────────────────────────────────────────── -->
 <?php if (isset($_GET['deleted'])): ?>
@@ -952,12 +1306,11 @@ body{
 <!-- ── HERO ───────────────────────────────────────────────────── -->
 <?php if ($featured): ?>
 <?php
-  $heroImg  = resolveImg($featured['variant_img'] ?: $featured['image_url'], FALLBACK_BIKE_IMG);
+  $heroImg  = resolveImg(bikeImgPath($featured['variant_img'] ?: $featured['image_url']), FALLBACK_BIKE_IMG);
   $bikeName = htmlspecialchars($featured['bike_name']);
-  $wmRed    = mb_substr($featured['bike_name'], 0, 3);
-  $wmWhite  = mb_substr($featured['bike_name'], 3);
-  $sq       = $featured['stock_status'];
-  $pillCls  = $sq === 'In Stock' ? 'green' : ($sq === 'Low Stock' ? 'yellow' : 'red-pill');
+  $heroNameParts = preg_split('/\s+/', trim($featured['bike_name']), 2);
+  $wmRed    = $heroNameParts[0] ?? $featured['bike_name'];
+  $wmWhite  = $heroNameParts[1] ?? '';
 ?>
 <section class="hero">
   <div class="hero-top-line"></div>
@@ -968,7 +1321,7 @@ body{
       <div class="hero-wm-brand">
         <span class="part-red"><?= htmlspecialchars($wmRed) ?></span><span class="part-white"><?= htmlspecialchars($wmWhite) ?></span>
       </div>
-      <div class="hero-wm-sub">Scooter Edition</div>
+      <div class="hero-wm-sub" id="heroEdition"><?= htmlspecialchars($featured['edition'] ?: 'Concept Edition') ?></div>
     </div>
 
     <img class="hero-bike-img"
@@ -977,27 +1330,12 @@ body{
          alt="<?= $bikeName ?>"
          onerror="this.src='<?= FALLBACK_BIKE_IMG ?>'">
 
-    <?php if ($variants): ?>
-    <div class="variants-bar" id="variantsBar">
-      <div class="var-choose" id="varChooseLabel">Choose your <?= $bikeName ?> :</div>
-      <div class="variants-bottom" id="variantsRow">
-        <?php foreach ($variants as $v): ?>
-        <?php $vImg = resolveImg($v['image_url'] ?? null, ''); ?>
-        <div class="var-item <?= $v['is_default'] ? 'active' : '' ?>"
-             onclick="selectVariant(this,'<?= htmlspecialchars(addslashes($v['image_url'] ?? '')) ?>')">
-          <div class="var-thumb">
-            <?php if ($vImg): ?>
-              <img src="<?= $vImg ?>" alt="<?= htmlspecialchars($v['color_name']) ?>" onerror="this.style.display='none'">
-            <?php else: ?>
-              <div class="var-swatch" style="background:#555"></div>
-            <?php endif; ?>
-          </div>
-          <div class="var-name"><?= htmlspecialchars($v['color_name']) ?></div>
-        </div>
-        <?php endforeach; ?>
-      </div>
-    </div>
-    <?php endif; ?>
+    <button class="hero-carousel-btn prev" type="button" onclick="moveHeroSlide(-1)" aria-label="Previous bike">
+      <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>
+    <button class="hero-carousel-btn next" type="button" onclick="moveHeroSlide(1)" aria-label="Next bike">
+      <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+    </button>
   </div>
 
   <!-- Info panel (right) -->
@@ -1005,14 +1343,9 @@ body{
     <div class="hr-eyebrow">Featured Model</div>
 
     <div class="hero-price" id="heroPrice">&#8369;<?= number_format($featured['price'], 0) ?></div>
-    <div class="hero-model" id="heroModel"><?= $bikeName ?> <?= htmlspecialchars($featured['model']) ?></div>
+    <div class="hero-model" id="heroModel"><?= htmlspecialchars($featured['model']) ?> <?= $bikeName ?></div>
 
-    <div class="stock-pill <?= $pillCls ?>" id="heroPill">
-      <span class="stock-dot"></span>
-      <?= htmlspecialchars($sq) ?>
-    </div>
-
-    <div class="hero-desc" id="heroDesc"><?= nl2br(htmlspecialchars($featured['description'] ?? 'Inspired by iconic design built for performance. The all-new model delivers style, power, and everyday comfort.')) ?></div>
+    <div class="hero-desc" id="heroDesc"><?= nl2br(htmlspecialchars($featured['description'] ?? '')) ?></div>
 
     <!-- Mini stats -->
     <div class="hero-stats">
@@ -1020,29 +1353,22 @@ body{
         <div class="hstat-lbl">Category</div>
         <div class="hstat-val" id="heroStatCat"><?= flagImg($featured['country_code'], $featured['country_code'], 'hstat-flag') ?> <?= htmlspecialchars($featured['country_code']) ?></div>
       </div>
-      <div class="hstat">
-        <div class="hstat-lbl">Color</div>
-        <div class="hstat-val" id="heroStatColor"><?= htmlspecialchars($featured['color_name'] ?? '—') ?></div>
-      </div>
-      <div class="hstat">
-        <div class="hstat-lbl">Stock</div>
-        <div class="hstat-val" id="heroStatQty"><?= (int)$featured['stock_qty'] ?> units</div>
-      </div>
-      <div class="hstat">
-        <div class="hstat-lbl">Status</div>
-        <div class="hstat-val" style="color:var(--red2)">Active</div>
-      </div>
     </div>
 
     <div class="hero-btns">
-      <a href="edit.php?id=<?= $featured['bike_id'] ?>" class="btn-hero-edit" id="heroEditBtn">
+      <a href="edit.php?id=<?= $featured['bike_id'] ?>" class="btn-hero-edit" id="heroEditBtn" onclick="return requireVaultPin(event, this.href, 'EDIT BIKE')">
         <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-        EDIT
+        <span>EDIT</span>
       </a>
-      <a href="create.php" class="btn-hero-add">
-        <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        ADD NEW
-      </a>
+      <button type="button"
+              class="btn-hero-delete"
+              id="heroDeleteBtn"
+              data-bike-id="<?= $featured['bike_id'] ?>"
+              data-bike-name="<?= htmlspecialchars($featured['model'] . ' ' . $featured['bike_name']) ?>"
+              onclick="return guardedOpenDelete(this.dataset.bikeId, this.dataset.bikeName, event)">
+        <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+        DELETE
+      </button>
     </div>
   </div>
 
@@ -1052,13 +1378,13 @@ body{
 
 <!-- ── INVENTORY GRID ─────────────────────────────────────────── -->
 <!-- BUILD PARTS SYSTEM -->
-<section class="build-system" aria-label="Motorcycle modification build parts">
+<section class="build-system" id="buildSystem" aria-label="Motorcycle modification build parts">
   <div class="build-shell">
     <div class="build-head">
       <div>
         <div class="build-kicker">Concept Build Parts</div>
         <div class="build-title" id="buildTitle">
-          <?= $featured ? htmlspecialchars($featured['bike_name'] . ' ' . $featured['model']) : 'Selected Motorcycle' ?>
+          <?= $featured ? htmlspecialchars($featured['model'] . ' ' . $featured['bike_name']) : 'Selected Motorcycle' ?>
         </div>
         <div class="build-sub">Installed parts with editable prices, quantities, and estimated build cost.</div>
       </div>
@@ -1085,7 +1411,7 @@ body{
       <input type="text" id="newPartBrand" placeholder="Brand">
       <select id="newPartCategory">
         <option>Engine</option>
-        <option>Body</option>
+        <option>Body Parts</option>
         <option>Accessories</option>
         <option>Electrical</option>
       </select>
@@ -1093,7 +1419,10 @@ body{
       <input type="number" id="newPartQty" placeholder="Qty" min="1" step="1" value="1">
       <textarea id="newPartDesc" placeholder="Description"></textarea>
       <input type="file" id="newPartImage" accept="image/*" aria-label="Part image">
-      <button type="button" onclick="addPart()">SAVE</button>
+      <div class="part-add-actions">
+        <button type="button" onclick="addPart()">SAVE</button>
+        <button class="part-add-cancel" type="button" onclick="cancelAddPart()">CANCEL</button>
+      </div>
     </div>
 
     <div class="parts-list" id="partsList"></div>
@@ -1106,36 +1435,53 @@ body{
       <h2 id="sectionLabel">Collection</h2>
       <span class="section-count" id="bikeCount"><?= count($bikes) ?> Bike<?= count($bikes) !== 1 ? 's' : '' ?></span>
     </div>
-    <div class="right-side">
-      <button class="filter-pill active" onclick="setStockFilter('all',this)">All</button>
-      <button class="filter-pill" onclick="setStockFilter('in',this)">In Stock</button>
-      <button class="filter-pill" onclick="setStockFilter('low',this)">Low Stock</button>
-      <button class="filter-pill" onclick="setStockFilter('out',this)">Out of Stock</button>
-    </div>
   </div>
 
   <?php if (empty($bikes)): ?>
   <div class="empty">
-    <div class="empty-icon">&#128663;</div>
-    <h3>No bikes found</h3>
+    <div class="empty-icon">&#127949;&#65039;</div>
     <p>Add your first bike to get started</p>
   </div>
   <?php else: ?>
   <div class="bike-grid" id="bikeGrid">
     <?php foreach ($bikes as $b): ?>
+    <?php
+      $bikeParts = $partsByBike[(int)$b['bike_id']] ?? [];
+      $partSearch = implode(' ', array_map(
+          fn($part) => implode(' ', [
+              $part['type'] ?? '',
+              $part['category'] ?? '',
+              $part['name'] ?? '',
+              $part['brand'] ?? '',
+              $part['description'] ?? '',
+          ]),
+          $bikeParts
+      ));
+      $searchText = strtolower(implode(' ', [
+          $b['bike_id'],
+          $b['bike_name'],
+          $b['model'],
+          $b['edition'] ?? '',
+          $b['country_code'],
+          $b['description'] ?? '',
+          $partSearch,
+      ]));
+    ?>
     <div class="bike-card <?= $b['is_featured'] ? 'feat' : '' ?>"
-         data-search="<?= strtolower(htmlspecialchars($b['bike_name'].' '.$b['model'])) ?>"
+         data-search="<?= htmlspecialchars($searchText, ENT_QUOTES) ?>"
          data-cat="<?= (int)$b['category_id'] ?>"
+         data-country="<?= htmlspecialchars($b['country_code']) ?>"
+         data-flag="<?= htmlspecialchars(flagImg($b['country_code'], $b['country_code'], 'hstat-flag')) ?>"
          data-bike-id="<?= $b['bike_id'] ?>"
          data-bike-name="<?= htmlspecialchars(addslashes($b['bike_name'])) ?>"
          data-model="<?= htmlspecialchars(addslashes($b['model'])) ?>"
+         data-edition="<?= htmlspecialchars(addslashes($b['edition'] ?? '')) ?>"
          data-price="<?= $b['price'] ?>"
-         data-stock="<?= htmlspecialchars($b['stock_status']) ?>"
-         data-img="<?= resolveImg($b['variant_img'] ?: $b['image_url'], '') ?>"
+         data-img="<?= resolveImg(bikeImgPath($b['variant_img'] ?: $b['image_url']), '') ?>"
          data-desc="<?= htmlspecialchars(addslashes($b['description'] ?? '')) ?>"
          onclick="previewBike(this)">
       <div class="card-img">
-        <?php $cimg = resolveImg($b['variant_img'] ?: $b['image_url'], FALLBACK_BIKE_IMG); ?>
+        <?php $cimg = resolveImg(bikeImgPath($b['variant_img'] ?: $b['image_url']), FALLBACK_BIKE_IMG); ?>
         <img src="<?= $cimg ?>" alt="<?= htmlspecialchars($b['bike_name']) ?>"
              onerror="this.src='<?= FALLBACK_BIKE_IMG ?>'">
         <span class="card-country"><span class="cflag"><?= flagImg($b['country_code'], $b['country_code']) ?></span><?= htmlspecialchars($b['country_code']) ?></span>
@@ -1145,11 +1491,10 @@ body{
         <div class="card-model"><?= htmlspecialchars($b['model']) ?></div>
         <div class="card-row">
           <span class="card-price">&#8369;<?= number_format($b['price'], 0) ?></span>
-          <?= stockBadge($b['stock_status']) ?>
         </div>
         <div class="card-actions">
-          <a href="edit.php?id=<?= $b['bike_id'] ?>" class="card-btn edit" onclick="event.stopPropagation()">&#9998; EDIT</a>
-          <button class="card-btn del" onclick="event.stopPropagation();openDelete(<?= $b['bike_id'] ?>, '<?= addslashes($b['bike_name']) ?> <?= addslashes($b['model']) ?>')">&#128465; DEL</button>
+          <a href="edit.php?id=<?= $b['bike_id'] ?>" class="card-btn edit" onclick="return requireVaultPin(event, this.href, 'EDIT BIKE')"><span>&#9998; EDIT</span></a>
+          <button class="card-btn del" onclick="return guardedOpenDelete(<?= $b['bike_id'] ?>, '<?= addslashes($b['model']) ?> <?= addslashes($b['bike_name']) ?>', event)">&#128465; DELETE</button>
         </div>
       </div>
     </div>
@@ -1157,8 +1502,7 @@ body{
   </div>
 
   <div class="empty" id="liveEmpty" style="display:none;">
-    <div class="empty-icon">&#128663;</div>
-    <h3>No bikes found</h3>
+    <div class="empty-icon">&#127949;&#65039;</div>
     <p id="liveEmptyMsg"></p>
   </div>
   <?php endif; ?>
@@ -1173,6 +1517,22 @@ body{
     <div class="modal-btns">
       <button class="btn-cancel" onclick="closeDelete()">Cancel</button>
       <a href="#" id="deleteConfirmBtn" class="btn-confirm-del">DELETE</a>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="pinModal">
+  <div class="modal pin-modal">
+    <div class="pin-core">
+      <div class="pin-orb">PIN</div>
+      <h3 id="pinTitle">VAULT ACCESS</h3>
+      <p>Enter the security PIN to continue.</p>
+      <input class="pin-input" id="pinInput" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" aria-label="Security PIN">
+      <div class="pin-error" id="pinError"></div>
+      <div class="modal-btns">
+        <button class="btn-cancel" type="button" onclick="closePinModal()">Cancel</button>
+        <button class="btn-pin-unlock" type="button" onclick="submitVaultPin()">UNLOCK</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1192,6 +1552,142 @@ body{
 <script>
 /* ── HERO DATA per category ── */
 const FALLBACK_IMG = <?= json_encode(FALLBACK_BIKE_IMG) ?>;
+let VAULT_PIN = <?= json_encode($vaultPin) ?>;
+const ACTIVE_THEME = <?= json_encode($theme) ?>;
+const DEFAULT_THEME = {
+  primary: '#E8000D',
+  accent: '#9FE7FF',
+  surface: '#080808',
+  card: '#161616'
+};
+let appliedTheme = {...ACTIVE_THEME};
+
+function hexToRgb(hex) {
+  const clean = String(hex || '').replace('#', '');
+  const num = parseInt(clean, 16);
+  if (Number.isNaN(num) || clean.length !== 6) return [232, 0, 13];
+  return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
+}
+
+function tint(hex, whiteAmount) {
+  const [r, g, b] = hexToRgb(hex);
+  const mix = value => Math.round(value + (255 - value) * whiteAmount);
+  return `rgb(${mix(r)}, ${mix(g)}, ${mix(b)})`;
+}
+
+function applyTheme(theme) {
+  const root = document.documentElement;
+  const primary = theme.primary || ACTIVE_THEME.primary;
+  const accent = theme.accent || ACTIVE_THEME.accent;
+  const surface = theme.surface || ACTIVE_THEME.surface;
+  const card = theme.card || ACTIVE_THEME.card;
+  root.style.setProperty('--bg', surface);
+  root.style.setProperty('--bg2', tint(surface, .12));
+  root.style.setProperty('--bg3', card);
+  root.style.setProperty('--bg4', tint(card, .16));
+  root.style.setProperty('--red', primary);
+  root.style.setProperty('--red2', tint(primary, .18));
+  root.style.setProperty('--red3', tint(primary, .34));
+  root.style.setProperty('--cyan', accent);
+  root.style.setProperty('--primary-rgb', hexToRgb(primary).join(','));
+  root.style.setProperty('--accent-rgb', hexToRgb(accent).join(','));
+}
+
+function readThemeInputs() {
+  return {
+    primary: document.getElementById('themePrimary').value,
+    accent: document.getElementById('themeAccent').value,
+    surface: document.getElementById('themeSurface').value,
+    card: document.getElementById('themeCard').value
+  };
+}
+
+function setThemeInputs(theme) {
+  document.getElementById('themePrimary').value = theme.primary;
+  document.getElementById('themeAccent').value = theme.accent;
+  document.getElementById('themeSurface').value = theme.surface;
+  document.getElementById('themeCard').value = theme.card;
+}
+
+function toggleSettingsPanel() {
+  const panel = document.getElementById('settingsPanel');
+  if (panel) panel.classList.toggle('show');
+}
+
+function closeSettingsPanel() {
+  const panel = document.getElementById('settingsPanel');
+  if (panel) panel.classList.remove('show');
+}
+
+async function saveThemeSettings() {
+  const status = document.getElementById('themeStatus');
+  if (status) status.textContent = 'Saving...';
+  const selectedTheme = readThemeInputs();
+  try {
+    const response = await fetch('index.php?settings_action=theme', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(selectedTheme)
+    });
+    const data = await response.json();
+    if (!data.ok) throw new Error(data.message || 'Unable to save colors.');
+    appliedTheme = data.theme || selectedTheme;
+    setThemeInputs(appliedTheme);
+    applyTheme(appliedTheme);
+    if (status) status.textContent = 'Saved';
+  } catch (error) {
+    if (status) status.textContent = error.message;
+  }
+}
+
+async function resetThemeSettings() {
+  setThemeInputs(DEFAULT_THEME);
+  await saveThemeSettings();
+  const status = document.getElementById('themeStatus');
+  if (status) status.textContent = 'Default theme restored';
+}
+
+function cancelThemeChanges() {
+  setThemeInputs(appliedTheme);
+  applyTheme(appliedTheme);
+  const status = document.getElementById('themeStatus');
+  if (status) status.textContent = 'Changes discarded';
+}
+
+async function savePinSettings() {
+  const currentInput = document.getElementById('currentPinSetting');
+  const newInput = document.getElementById('newPinSetting');
+  const status = document.getElementById('pinStatus');
+  const currentPin = currentInput ? currentInput.value.trim() : '';
+  const newPin = newInput ? newInput.value.trim() : '';
+  if (!/^\d{4,8}$/.test(newPin)) {
+    if (status) status.textContent = 'Use 4 to 8 digits.';
+    return;
+  }
+  if (status) status.textContent = 'Saving...';
+  try {
+    const response = await fetch('index.php?settings_action=pin', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({current_pin: currentPin, new_pin: newPin})
+    });
+    const data = await response.json();
+    if (!data.ok) throw new Error(data.message || 'Unable to save PIN.');
+    VAULT_PIN = newPin;
+    if (currentInput) currentInput.value = '';
+    if (newInput) newInput.value = '';
+    if (status) status.textContent = 'PIN updated';
+  } catch (error) {
+    if (status) status.textContent = error.message;
+  }
+}
+
+document.querySelectorAll('.theme-color-field input').forEach(input => {
+  input.addEventListener('input', () => {
+    const status = document.getElementById('themeStatus');
+    if (status) status.textContent = 'Unsaved changes';
+  });
+});
 
 const CAT_HEROES = {
   0: <?php
@@ -1200,9 +1696,11 @@ const CAT_HEROES = {
         'bike_id'      => $featured['bike_id'],
         'bike_name'    => $featured['bike_name'],
         'model'        => $featured['model'],
+        'edition'      => $featured['edition'] ?? '',
         'price'        => $featured['price'],
-        'stock_status' => $featured['stock_status'],
-        'img'          => $featured['variant_img'] ?: ($featured['image_url'] ?? ''),
+        'country_code'  => $featured['country_code'],
+        'flag'         => flagImg($featured['country_code'], $featured['country_code'], 'hstat-flag'),
+        'img'          => bikeImgPath($featured['variant_img'] ?: ($featured['image_url'] ?? '')),
         'description'  => $featured['description'] ?? '',
       ]);
     } else { echo 'null'; }
@@ -1212,18 +1710,20 @@ const CAT_HEROES = {
     'bike_id'      => $hero['bike_id'],
     'bike_name'    => $hero['bike_name'],
     'model'        => $hero['model'],
+    'edition'      => $hero['edition'] ?? '',
     'price'        => $hero['price'],
-    'stock_status' => $hero['stock_status'],
-    'img'          => $hero['variant_img'] ?: ($hero['image_url'] ?? ''),
+    'country_code'  => $hero['country_code'],
+    'flag'         => flagImg($hero['country_code'], $hero['country_code'], 'hstat-flag'),
+    'img'          => bikeImgPath($hero['variant_img'] ?: ($hero['image_url'] ?? '')),
     'description'  => $hero['description'] ?? '',
   ]) ?>
   <?php endforeach ?>
 };
 
 const CAT_LABELS = {
-  0: 'INVENTORY'
+  0: 'Collection'
   <?php foreach ($categories as $cat): ?>,
-  <?= $cat['category_id'] ?>: 'INVENTORY — <?= addslashes($cat['country_code']) ?>'
+  <?= $cat['category_id'] ?>: 'Collection - <?= addslashes($cat['country_code']) ?>'
   <?php endforeach; ?>
 };
 
@@ -1232,7 +1732,6 @@ const PARTS_FROM_DB = <?= json_encode($partsByBike) ?>;
 
 let activeCat    = 0;
 let searchTerm   = '';
-let stockFilter  = 'all';
 
 const allCards = Array.from(document.querySelectorAll('.bike-card'));
 const countEl  = document.getElementById('bikeCount');
@@ -1241,17 +1740,21 @@ const gridEl   = document.getElementById('bikeGrid');
 const emptyEl  = document.getElementById('liveEmpty');
 const emptyMsg = document.getElementById('liveEmptyMsg');
 const clearBtn = document.getElementById('searchClear');
+const searchInput = document.getElementById('liveSearch');
+const buildSystemEl = document.getElementById('buildSystem');
 
 /* ── HERO ELEMENTS ── */
 const heroBikeImg    = document.getElementById('heroBikeImg');
 const heroPrice      = document.getElementById('heroPrice');
 const heroModel      = document.getElementById('heroModel');
 const heroDesc       = document.getElementById('heroDesc');
-const heroPill       = document.getElementById('heroPill');
 const heroEditBtn    = document.getElementById('heroEditBtn');
+const heroDeleteBtn  = document.getElementById('heroDeleteBtn');
 const heroWmRed      = document.querySelector('.hero-wm-brand .part-red');
 const heroWmWhite    = document.querySelector('.hero-wm-brand .part-white');
-const varChooseLabel = document.getElementById('varChooseLabel');
+const heroEdition    = document.getElementById('heroEdition');
+const heroStatCat    = document.getElementById('heroStatCat');
+const heroSection    = document.querySelector('.hero');
 
 /* BUILD PARTS SYSTEM */
 const partsListEl = document.getElementById('partsList');
@@ -1262,15 +1765,48 @@ const PARTS_STORAGE_KEY = 'bikeConceptVault.parts.v1';
 const ALLOWED_PART_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 let activePartFilter = 'All';
 let activeBuildKey = CAT_HEROES[0] ? String(CAT_HEROES[0].bike_id) : 'default';
-let activeBuildName = CAT_HEROES[0] ? (CAT_HEROES[0].bike_name + ' ' + CAT_HEROES[0].model) : 'Selected Motorcycle';
+let activeBuildName = CAT_HEROES[0] ? formatBikeTitle(CAT_HEROES[0]) : 'Selected Motorcycle';
+let activeHeroIndex = allCards.findIndex(card => card.classList.contains('feat'));
+if (activeHeroIndex < 0) activeHeroIndex = 0;
+let heroImageToken = 0;
 let partIdSeq = 100;
 const conceptPartsCache = {};
 let pendingPartImage = '';
 let editingPartId = null;
 let editingDraft = null;
+let uiAudioContext = null;
 
 function formatPeso(value) {
   return '\u20B1' + Number(value || 0).toLocaleString();
+}
+
+function playUiSound(type = 'tap') {
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) return;
+
+  uiAudioContext = uiAudioContext || new AudioCtx();
+  if (uiAudioContext.state === 'suspended') uiAudioContext.resume();
+
+  const now = uiAudioContext.currentTime;
+  const gain = uiAudioContext.createGain();
+  const osc = uiAudioContext.createOscillator();
+  const config = {
+    flag: {start: 240, end: 720, duration: 0.14, volume: 0.12},
+    carousel: {start: 240, end: 720, duration: 0.14, volume: 0.12},
+    motor: {start: 120, end: 72, duration: 0.13, volume: 0.055},
+    tap: {start: 480, end: 380, duration: 0.06, volume: 0.04}
+  }[type] || {start: 480, end: 380, duration: 0.06, volume: 0.04};
+
+  osc.type = type === 'motor' ? 'sawtooth' : (type === 'carousel' || type === 'flag' ? 'square' : 'triangle');
+  osc.frequency.setValueAtTime(config.start, now);
+  osc.frequency.exponentialRampToValueAtTime(config.end, now + config.duration);
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(config.volume, now + 0.012);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + config.duration);
+  osc.connect(gain);
+  gain.connect(uiAudioContext.destination);
+  osc.start(now);
+  osc.stop(now + config.duration + 0.02);
 }
 
 function escapeHTML(value) {
@@ -1399,9 +1935,11 @@ function renderParts() {
             <button class="part-thumb" type="button" onclick="openPartImage(${part.id})" title="View ${escapeHTML(part.name)} image">
               <img src="${img}" alt="${escapeHTML(rowData.name)} preview">
             </button>
-            <label class="part-image-btn" for="partImageInput${part.id}">${part.image ? 'CHANGE' : 'UPLOAD'}</label>
-            <input class="part-image-file" id="partImageInput${part.id}" type="file" accept="image/jpeg,image/png,image/webp" onchange="savePartImage(${part.id}, this)">
-            ${part.image ? `<button class="part-image-remove" type="button" onclick="removePartImage(${part.id})">REMOVE</button>` : ''}
+            ${isEditing ? `
+              <label class="part-image-btn" for="partImageInput${part.id}">${rowData.image ? 'CHANGE' : 'UPLOAD'}</label>
+              <input class="part-image-file" id="partImageInput${part.id}" type="file" accept="image/jpeg,image/png,image/webp" onchange="savePartImage(${part.id}, this)">
+              ${rowData.image ? `<button class="part-image-remove" type="button" onclick="removePartImage(${part.id})">REMOVE</button>` : ''}
+            ` : ''}
           </div>
           <div>
             ${isEditing ? `
@@ -1481,12 +2019,12 @@ function savePartImage(id, input) {
   const file = input.files && input.files[0];
   if (!part || !file) return;
   readPartImage(file, imageData => {
-    part.image = imageData;
-    if (editingPartId === id && editingDraft) editingDraft.image = imageData;
-    const row = document.querySelector(`.part-row[data-part-id="${id}"]`);
-    const img = row ? row.querySelector('.part-thumb img') : null;
-    if (img) img.src = imageData;
-    savePartsState();
+    if (editingPartId === id && editingDraft) {
+      editingDraft.image = imageData;
+    } else {
+      part.image = imageData;
+      savePartsState();
+    }
     renderParts();
   });
 }
@@ -1494,9 +2032,12 @@ function savePartImage(id, input) {
 function removePartImage(id) {
   const part = getActiveParts().find(item => item.id === id);
   if (!part) return;
-  delete part.image;
-  if (editingPartId === id && editingDraft) delete editingDraft.image;
-  savePartsState();
+  if (editingPartId === id && editingDraft) {
+    delete editingDraft.image;
+  } else {
+    delete part.image;
+    savePartsState();
+  }
   renderParts();
 }
 
@@ -1555,6 +2096,21 @@ function togglePartForm() {
   if (partAddPanel) partAddPanel.classList.toggle('show');
 }
 
+function resetAddPartForm() {
+  document.getElementById('newPartName').value = '';
+  document.getElementById('newPartBrand').value = '';
+  document.getElementById('newPartPrice').value = '';
+  document.getElementById('newPartQty').value = '1';
+  document.getElementById('newPartDesc').value = '';
+  document.getElementById('newPartImage').value = '';
+  pendingPartImage = '';
+}
+
+function cancelAddPart() {
+  resetAddPartForm();
+  if (partAddPanel) partAddPanel.classList.remove('show');
+}
+
 function addPart() {
   const name = document.getElementById('newPartName').value.trim();
   const brand = document.getElementById('newPartBrand').value.trim() || 'Custom Garage';
@@ -1567,13 +2123,8 @@ function addPart() {
     return;
   }
   getActiveParts().push({id:++partIdSeq, name, brand, category, price, qty, description, image: pendingPartImage});
-  document.getElementById('newPartName').value = '';
-  document.getElementById('newPartBrand').value = '';
-  document.getElementById('newPartPrice').value = '';
-  document.getElementById('newPartQty').value = '1';
-  document.getElementById('newPartDesc').value = '';
-  document.getElementById('newPartImage').value = '';
-  pendingPartImage = '';
+  resetAddPartForm();
+  if (partAddPanel) partAddPanel.classList.remove('show');
   savePartsState();
   renderParts();
 }
@@ -1588,85 +2139,241 @@ function setPartFilter(category, btn) {
 function updateBuildConcept(data) {
   if (!data) return;
   activeBuildKey = String(data.bike_id || data.bikeId || 'default');
-  activeBuildName = (data.bike_name || data.bikeName || 'Selected') + ' ' + (data.model || 'Motorcycle');
+  activeBuildName = formatBikeTitle(data);
   editingPartId = null;
   editingDraft = null;
   renderParts();
 }
 
-/* ── UPDATE HERO ── */
-function updateHero(catId) {
-  const data = CAT_HEROES[catId] || CAT_HEROES[0];
+function showBuildSystem() {
+  if (!buildSystemEl) return;
+  buildSystemEl.classList.add('show');
+  renderParts();
+  buildSystemEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function hideBuildSystem() {
+  if (!buildSystemEl) return;
+  buildSystemEl.classList.remove('show');
+}
+
+if (heroBikeImg) {
+  heroBikeImg.addEventListener('click', () => {
+    playUiSound('carousel');
+    showBuildSystem();
+  });
+}
+
+document.querySelectorAll('.hero-carousel-btn').forEach(btn => {
+  btn.addEventListener('pointerdown', () => playUiSound('carousel'));
+});
+
+document.querySelectorAll('.cat-nav a[data-cat]').forEach(link => {
+  link.addEventListener('pointerdown', () => playUiSound('carousel'));
+});
+
+function setHeroStats(data) {
   if (!data) return;
-  const img = (data.img && data.img.trim()) ? data.img : FALLBACK_IMG;
-  if (heroBikeImg) {
-    heroBikeImg.style.opacity = '0';
-    setTimeout(() => {
-      heroBikeImg.src = img;
+  const country = data.country_code || data.country || '';
+  const flag = data.flag || data.flagHtml || '';
+  if (heroStatCat) {
+    heroStatCat.innerHTML = country
+      ? flag + ' ' + escapeHTML(country)
+      : '-';
+  }
+}
+
+function setHeroDelete(data) {
+  if (!heroDeleteBtn || !data) return;
+  heroDeleteBtn.dataset.bikeId = data.bike_id || data.bikeId || '';
+  heroDeleteBtn.dataset.bikeName = formatBikeTitle(data);
+}
+
+function formatBikeTitle(data) {
+  const model = String(data.model || '').trim();
+  const bikeName = String(data.bike_name || data.bikeName || '').trim();
+  return [model, bikeName].filter(Boolean).join(' ') || 'Selected Motorcycle';
+}
+
+function setHeroWatermarkName(name) {
+  const cleanName = String(name || '').trim();
+  if (!cleanName) return;
+
+  const nameParts = cleanName.split(/\s+(.+)/);
+  if (heroWmRed) heroWmRed.textContent = nameParts[0] || cleanName;
+  if (heroWmWhite) {
+    heroWmWhite.textContent = nameParts[1] || '';
+    heroWmWhite.style.display = nameParts[1] ? 'inline-block' : 'none';
+  }
+}
+
+function cropImageWhitespace(src) {
+  return new Promise(resolve => {
+    if (!src || src === FALLBACK_IMG) {
+      resolve(src || FALLBACK_IMG);
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      const sourceWidth = img.naturalWidth || img.width;
+      const sourceHeight = img.naturalHeight || img.height;
+      if (!sourceWidth || !sourceHeight) {
+        resolve(src);
+        return;
+      }
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      canvas.width = sourceWidth;
+      canvas.height = sourceHeight;
+      ctx.drawImage(img, 0, 0);
+      let data;
+      try {
+        data = ctx.getImageData(0, 0, sourceWidth, sourceHeight).data;
+      } catch (error) {
+        resolve(src);
+        return;
+      }
+      let minX = sourceWidth, minY = sourceHeight, maxX = -1, maxY = -1;
+      for (let y = 0; y < sourceHeight; y += 1) {
+        for (let x = 0; x < sourceWidth; x += 1) {
+          const index = (y * sourceWidth + x) * 4;
+          const r = data[index], g = data[index + 1], b = data[index + 2], a = data[index + 3];
+          const isEmpty = a < 12 || (r > 242 && g > 242 && b > 242);
+          if (!isEmpty) {
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+          }
+        }
+      }
+      if (maxX < 0 || maxY < 0) {
+        resolve(src);
+        return;
+      }
+      const pad = Math.round(Math.max(sourceWidth, sourceHeight) * 0.035);
+      minX = Math.max(0, minX - pad);
+      minY = Math.max(0, minY - pad);
+      maxX = Math.min(sourceWidth - 1, maxX + pad);
+      maxY = Math.min(sourceHeight - 1, maxY + pad);
+      const cropWidth = maxX - minX + 1;
+      const cropHeight = maxY - minY + 1;
+      if (cropWidth >= sourceWidth * 0.94 && cropHeight >= sourceHeight * 0.94) {
+        resolve(src);
+        return;
+      }
+      const cropped = document.createElement('canvas');
+      cropped.width = cropWidth;
+      cropped.height = cropHeight;
+      cropped.getContext('2d').drawImage(canvas, minX, minY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+      resolve(cropped.toDataURL('image/png'));
+    };
+    img.onerror = () => resolve(FALLBACK_IMG);
+    img.src = src;
+  });
+}
+
+function setHeroImage(src, delay = 150) {
+  if (!heroBikeImg) return;
+  const token = ++heroImageToken;
+  const imageSrc = (src && src.trim()) ? src : FALLBACK_IMG;
+  heroBikeImg.style.opacity = '0';
+  setTimeout(() => {
+    cropImageWhitespace(imageSrc).then(croppedSrc => {
+      if (token !== heroImageToken) return;
+      heroBikeImg.src = croppedSrc || FALLBACK_IMG;
       heroBikeImg.onerror = function(){ this.src = FALLBACK_IMG; };
       heroBikeImg.style.opacity = '1';
-    }, 180);
+    });
+  }, delay);
+}
+
+/* ── UPDATE HERO ── */
+function updateHero(catId) {
+  const data = catId === 0 ? CAT_HEROES[0] : CAT_HEROES[catId];
+  if (!data) {
+    if (heroSection) heroSection.style.display = 'none';
+    hideBuildSystem();
+    return;
   }
+  if (heroSection) heroSection.style.display = '';
+  const img = (data.img && data.img.trim()) ? data.img : FALLBACK_IMG;
+  setHeroImage(img, 180);
   if (heroPrice)  heroPrice.textContent  = '₱' + Number(data.price).toLocaleString();
-  if (heroModel)  heroModel.textContent  = data.bike_name + ' ' + data.model;
-  if (heroDesc)   heroDesc.textContent   = data.description || 'Inspired by iconic design built for performance. The all-new model delivers style, power, and everyday comfort.';
+  if (heroModel)  heroModel.textContent  = formatBikeTitle(data);
+  if (heroDesc)   heroDesc.textContent   = data.description || '';
   if (heroEditBtn) heroEditBtn.href      = 'edit.php?id=' + data.bike_id;
-  if (varChooseLabel) varChooseLabel.textContent = 'Choose your ' + data.bike_name + ' :';
-  if (heroWmRed)   heroWmRed.textContent   = data.bike_name.substring(0, 3);
-  if (heroWmWhite) heroWmWhite.textContent = data.bike_name.substring(3);
-  if (heroPill) {
-    const s = data.stock_status;
-    heroPill.className = 'stock-pill ' + (s === 'In Stock' ? 'green' : s === 'Low Stock' ? 'yellow' : 'red-pill');
-    heroPill.innerHTML = '<span class="stock-dot"></span>' + s;
-  }
+  setHeroDelete(data);
+  setHeroWatermarkName(data.bike_name);
+  if (heroEdition) heroEdition.textContent = data.edition || 'Concept Edition';
+  const index = allCards.findIndex(card => String(card.dataset.bikeId) === String(data.bike_id));
+  if (index >= 0) activeHeroIndex = index;
+  setHeroStats(data);
   updateBuildConcept(data);
 }
 
 /* ── CATEGORY CLICK ── */
 function setCat(catId, linkEl) {
+  hideBuildSystem();
   activeCat = catId;
   document.querySelectorAll('.cat-nav a[data-cat]').forEach(a => {
     a.classList.toggle('active', parseInt(a.dataset.cat) === catId);
   });
-  if (labelEl) labelEl.textContent = CAT_LABELS[catId] || 'INVENTORY';
+  if (labelEl) labelEl.textContent = CAT_LABELS[catId] || 'Collection';
   updateHero(catId);
   applyFilters();
 }
 
-/* ── STOCK FILTER ── */
-function setStockFilter(val, btn) {
-  stockFilter = val;
-  document.querySelectorAll('.filter-pill').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  applyFilters();
+/* ── SEARCH INPUT ── */
+function syncSearchTerm() {
+  searchTerm = searchInput ? searchInput.value.trim().toLowerCase() : '';
+  if (clearBtn) clearBtn.classList.toggle('visible', searchTerm.length > 0);
 }
 
-/* ── SEARCH INPUT ── */
-document.getElementById('liveSearch').addEventListener('input', function() {
-  searchTerm = this.value.trim().toLowerCase();
-  clearBtn.classList.toggle('visible', searchTerm.length > 0);
+function getSearchTerms() {
+  return searchTerm.split(/\s+/).filter(Boolean);
+}
+
+function cardMatchesSearch(card) {
+  const terms = getSearchTerms();
+  const indexedText = card.dataset.search || '';
+  return terms.length === 0 || terms.every(term => indexedText.includes(term));
+}
+
+function performSearch(event) {
+  if (event) event.preventDefault();
+  syncSearchTerm();
   applyFilters();
-});
+  const firstVisible = allCards.find(card => card.style.display !== 'none');
+  if (firstVisible) {
+    previewBike(firstVisible, false, false);
+    firstVisible.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+if (searchInput) {
+  searchInput.addEventListener('input', function() {
+    syncSearchTerm();
+    applyFilters();
+  });
+}
 
 function clearSearch() {
-  const input = document.getElementById('liveSearch');
-  input.value = ''; searchTerm = '';
-  clearBtn.classList.remove('visible');
-  applyFilters(); input.focus();
+  if (!searchInput) return;
+  searchInput.value = '';
+  syncSearchTerm();
+  applyFilters();
+  searchInput.focus();
 }
 
 /* ── COMBINED FILTER ── */
 function applyFilters() {
+  syncSearchTerm();
   let visible = 0;
   allCards.forEach(card => {
-    const catMatch    = activeCat === 0 || parseInt(card.dataset.cat) === activeCat;
-    const searchMatch = searchTerm === '' || (card.dataset.search || '').includes(searchTerm);
-    const s = (card.dataset.stock || '').toLowerCase();
-    const stockMatch  = stockFilter === 'all'
-                     || (stockFilter === 'in'  && s === 'in stock')
-                     || (stockFilter === 'low' && s === 'low stock')
-                     || (stockFilter === 'out' && s === 'out of stock');
-    const show = catMatch && searchMatch && stockMatch;
+    const catMatch    = activeCat === 0 || parseInt(card.dataset.cat, 10) === activeCat;
+    const searchMatch = cardMatchesSearch(card);
+    const show = catMatch && searchMatch;
     card.style.display = show ? '' : 'none';
     if (show) visible++;
   });
@@ -1675,14 +2382,69 @@ function applyFilters() {
   if (emptyEl) {
     emptyEl.style.display = visible === 0 ? 'block' : 'none';
     if (emptyMsg) {
-      if (searchTerm)       emptyMsg.textContent = 'No results for "' + document.getElementById('liveSearch').value.trim() + '"';
+      if (searchTerm)       emptyMsg.textContent = 'No results for "' + (searchInput ? searchInput.value.trim() : '') + '"';
       else if (activeCat)   emptyMsg.textContent = 'No bikes in this category yet.';
       else                  emptyMsg.textContent = 'Add your first bike to get started.';
     }
   }
 }
 
+function getHeroSlideCards() {
+  syncSearchTerm();
+  return allCards.filter(card => {
+    const catMatch = activeCat === 0 || parseInt(card.dataset.cat, 10) === activeCat;
+    const searchMatch = cardMatchesSearch(card);
+    return catMatch && searchMatch;
+  });
+}
+
 /* ── DELETE MODAL ── */
+let pendingVaultAction = null;
+
+function requireVaultPin(event, action, label = 'VAULT ACCESS') {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  const modal = document.getElementById('pinModal');
+  const input = document.getElementById('pinInput');
+  const error = document.getElementById('pinError');
+  const title = document.getElementById('pinTitle');
+  pendingVaultAction = typeof action === 'function' ? action : () => { window.location.href = action; };
+  if (title) title.textContent = label;
+  if (error) error.textContent = '';
+  if (input) input.value = '';
+  modal.classList.add('show');
+  setTimeout(() => input && input.focus(), 60);
+  return false;
+}
+
+function submitVaultPin() {
+  const input = document.getElementById('pinInput');
+  const error = document.getElementById('pinError');
+  if (!input || input.value !== VAULT_PIN) {
+    if (error) error.textContent = 'Invalid PIN';
+    if (input) {
+      input.value = '';
+      input.focus();
+    }
+    return;
+  }
+  const action = pendingVaultAction;
+  closePinModal();
+  if (action) action();
+}
+
+function closePinModal() {
+  const modal = document.getElementById('pinModal');
+  if (modal) modal.classList.remove('show');
+  pendingVaultAction = null;
+}
+
+function guardedOpenDelete(id, name, event) {
+  return requireVaultPin(event, () => openDelete(id, name), 'DELETE BIKE');
+}
+
 function openDelete(id, name) {
   document.getElementById('deleteName').textContent = name;
   document.getElementById('deleteConfirmBtn').href = 'delete.php?id=' + id;
@@ -1692,53 +2454,52 @@ function closeDelete() {
   document.getElementById('deleteModal').classList.remove('show');
 }
 document.getElementById('deleteModal').addEventListener('click', function(e){ if(e.target===this) closeDelete(); });
+document.getElementById('pinModal').addEventListener('click', function(e){ if(e.target===this) closePinModal(); });
+document.getElementById('pinInput').addEventListener('keydown', function(e){
+  if (e.key === 'Enter') submitVaultPin();
+  if (e.key === 'Escape') closePinModal();
+});
 document.getElementById('partImageModal').addEventListener('click', function(e){ if(e.target===this) closePartImage(); });
 
 /* ── CARD PREVIEW → HERO ── */
-function previewBike(card) {
+function previewBike(card, scrollHero = true, withSound = true) {
+  if (withSound) playUiSound('carousel');
+  hideBuildSystem();
   const d = card.dataset;
   const img = (d.img && d.img.trim()) ? d.img : FALLBACK_IMG;
   document.querySelectorAll('.bike-card').forEach(c => c.classList.remove('previewing'));
   card.classList.add('previewing');
-  if (heroBikeImg) {
-    heroBikeImg.style.opacity = '0';
-    setTimeout(() => {
-      heroBikeImg.src = img;
-      heroBikeImg.onerror = function(){ this.src = FALLBACK_IMG; };
-      heroBikeImg.style.opacity = '1';
-    }, 150);
-  }
+  const index = allCards.indexOf(card);
+  if (index >= 0) activeHeroIndex = index;
+  setHeroImage(img, 150);
   if (heroPrice)   heroPrice.textContent  = '\u20B1' + Number(d.price).toLocaleString();
-  if (heroModel)   heroModel.textContent  = d.bikeName + ' ' + d.model;
-  if (heroDesc)    heroDesc.textContent   = d.desc || 'Inspired by iconic design built for performance. The all-new model delivers style, power, and everyday comfort.';
+  if (heroModel)   heroModel.textContent  = formatBikeTitle(d);
+  if (heroDesc)    heroDesc.textContent   = d.desc || '';
   if (heroEditBtn) heroEditBtn.href       = 'edit.php?id=' + d.bikeId;
-  if (varChooseLabel) varChooseLabel.textContent = 'Viewing: ' + d.bikeName;
-  if (heroWmRed)   heroWmRed.textContent   = d.bikeName.substring(0, 3);
-  if (heroWmWhite) heroWmWhite.textContent = d.bikeName.substring(3);
-  if (heroPill) {
-    const s = d.stock;
-    heroPill.className = 'stock-pill ' + (s === 'In Stock' ? 'green' : s === 'Low Stock' ? 'yellow' : 'red-pill');
-    heroPill.innerHTML = '<span class=\'stock-dot\'></span>' + s;
-  }
+  setHeroDelete(d);
+  setHeroWatermarkName(d.bikeName);
+  if (heroEdition) heroEdition.textContent = d.edition || 'Concept Edition';
+  setHeroStats({...d, flagHtml: d.flag});
   updateBuildConcept(d);
-  document.querySelector('.hero').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (scrollHero) document.querySelector('.hero').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-/* ── VARIANT SWITCHER ── */
-function selectVariant(el, imgSrc) {
-  const row = el.closest('.variants-bottom');
-  if (row) row.querySelectorAll('.var-item').forEach(v => v.classList.remove('active'));
-  el.classList.add('active');
-  if (heroBikeImg && imgSrc && imgSrc.trim() !== '') {
-    heroBikeImg.style.opacity = '0';
-    setTimeout(() => {
-      heroBikeImg.src = imgSrc;
-      heroBikeImg.onerror = function(){ this.src = FALLBACK_IMG; };
-      heroBikeImg.style.opacity = '1';
-    }, 150);
+function moveHeroSlide(direction) {
+  const slideCards = getHeroSlideCards();
+  if (!slideCards.length) return;
+
+  const activeCard = allCards[activeHeroIndex];
+  let slideIndex = slideCards.indexOf(activeCard);
+  if (slideIndex < 0) {
+    slideIndex = direction > 0 ? -1 : 0;
   }
+
+  const nextSlideIndex = (slideIndex + direction + slideCards.length) % slideCards.length;
+  previewBike(slideCards[nextSlideIndex], false, false);
 }
+
 renderParts();
+if (heroBikeImg) setHeroImage(heroBikeImg.getAttribute('src'), 0);
 </script>
 </body>
 </html>
